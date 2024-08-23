@@ -1,0 +1,62 @@
+{
+  "noteType": [
+    {
+      "name": "Alphabets (C D E F) → Numerical (1 0 2 0)",
+      "value": "aplaToNum",
+      "id": 1
+    }
+  ],
+  "soundBaseType": [
+    {
+      "name": "C5 → C6 (Higher Base)",
+      "value": "higherBase",
+      "id": 1
+    },
+    {
+      "name": "C4 → C5 (Lower Base)",
+      "value": "lowerBase",
+      "id": 2
+    }
+  ],
+  "instrumentTypes": [
+    {
+      "name": "Piano → Trumpet",
+      "value": "pianoToTrumpet",
+      "id": 1
+    },
+    {
+      "name": "Piano → E-flat Alto Saxophone",
+      "value": "pianoToAlto",
+      "id": 2
+    },
+    {
+      "name": "Piano → B-flat Tenor Saxophone",
+      "value": "pianoToTenor",
+      "id": 3
+    },
+    {
+      "name": "Piano → E-flat Baritone Saxophone",
+      "value": "pianoToBaritone",
+      "id": 4
+    }
+  ],
+  "higherNotesMap": {
+    "C": "1",
+    "C#": "2",
+    "Db": "2",
+    "D": "0",
+    "D#": "1",
+    "Eb": "1",
+    "E": "2",
+    "F": "0",
+    "F#": "1",
+    "Gb": "1",
+    "G": "1/2",
+    "G#": "1",
+    "Ab": "1",
+    "A": "2",
+    "A#": "0",
+    "Bb": "0",
+    "B": "1/2"
+  }
+}

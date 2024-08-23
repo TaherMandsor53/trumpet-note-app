@@ -1,0 +1,28 @@
+.main-tab {
+  margin: 30px 20px;
+  .tab-icon-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    .tab-icons {
+      width: 20px;
+      height: 20px;
+    }
+  }
+}
+
+.file-icon-pdf {
+  color: red;
+  cursor: pointer;
+  font-size: 16px;
+  &.youtube {
+    font-size: 18px;
+  }
+}
+
+.convert-btn-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-top: 20px;
+}

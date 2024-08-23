@@ -1,0 +1,29 @@
+.logo-main {
+  background: #c19a6b;
+  padding: 10px 20px;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 20px;
+  font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif,
+    'Consolas';
+  .logo-text {
+    color: #ffffff;
+
+    // padding: 20px;
+  }
+  .logo-img {
+    width: 100px;
+    height: 100px;
+  }
+}
+
+@media only screen and (max-width: 768px) {
+  .logo-main {
+    gap: 12px;
+    .logo-text {
+      font-size: 16px;
+    }
+  }
+}
