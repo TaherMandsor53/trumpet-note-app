@@ -24,7 +24,6 @@
     "react-dom": "^18.3.1",
     "react-player": "^2.16.0",
     "react-redux": "^9.3.0",
-    "react-scripts": "5.0.1",
     "sass": "^1.77.8",
     "sass-loader": "^16.0.1",
     "tailwind-merge": "^3.7.0",
@@ -36,8 +35,7 @@
   "scripts": {
     "dev": "next dev -p 3005",
     "build": "next build",
-    "start": "next start -p 3005",
-    "start:cra": "react-scripts start"
+    "start": "next start -p 3005"
   },
   "eslintConfig": {
     "extends": [
