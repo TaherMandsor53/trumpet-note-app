@@ -1,6 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
-export type AppTheme = 'dark' | 'light' | 'monochrome';
+export type AppTheme = 'dark' | 'monochrome';
 
 interface ThemeState {
   theme: AppTheme;
@@ -15,12 +15,10 @@ export const themeSlice = createSlice({
   initialState,
   reducers: {
     setTheme: (state, action: PayloadAction<AppTheme>) => {
-      state.theme = action.payload;
+      state.theme = action.payload === 'monochrome' ? 'monochrome' : 'dark';
     },
     toggleTheme: (state) => {
-      if (state.theme === 'dark') state.theme = 'light';
-      else if (state.theme === 'light') state.theme = 'monochrome';
-      else state.theme = 'dark';
+      state.theme = state.theme === 'dark' ? 'monochrome' : 'dark';
     },
   },
 });

@@ -107,3 +107,46 @@ export function FloatingNoteParticles() {
     </div>
   );
 }
+
+export function MadehStaveVisualizer({ className = '' }: { className?: string }) {
+  return (
+    <div className={`relative w-full rounded-2xl p-3 bg-black/40 border border-amber-500/25 shadow-inner overflow-hidden ${className}`}>
+      {/* 5-Line Musical Staff with Golden Shimmer */}
+      <div className="relative py-2.5 px-2 bg-gradient-to-r from-amber-950/20 via-transparent to-amber-950/20 rounded-xl">
+        {/* Five Staff Lines */}
+        <div className="space-y-2 relative my-1">
+          <div className="h-[1px] w-full bg-gradient-to-r from-amber-500/40 via-amber-400/60 to-amber-500/40" />
+          <div className="h-[1px] w-full bg-gradient-to-r from-amber-500/40 via-amber-400/60 to-amber-500/40" />
+          <div className="h-[1px] w-full bg-gradient-to-r from-amber-500/40 via-amber-400/60 to-amber-500/40" />
+          <div className="h-[1px] w-full bg-gradient-to-r from-amber-500/40 via-amber-400/60 to-amber-500/40" />
+          <div className="h-[1px] w-full bg-gradient-to-r from-amber-500/40 via-amber-400/60 to-amber-500/40" />
+        </div>
+
+        {/* Treble Clef Graphic on Left */}
+        <div className="absolute left-2 top-1/2 -translate-y-1/2 text-amber-300 select-none text-3xl font-serif leading-none pointer-events-none drop-shadow-[0_0_8px_rgba(229,169,60,0.6)]">
+          𝄞
+        </div>
+
+        {/* Animated Madeh Notes Dancing Along the Stave */}
+        <div className="absolute inset-0 pl-11 pr-3 flex items-center justify-around pointer-events-none">
+          <span className="text-amber-200 text-lg animate-bounce [animation-duration:1.4s] drop-shadow-[0_0_6px_rgba(245,158,11,0.7)]">♩</span>
+          <span className="text-[#E5A93C] text-xl animate-bounce [animation-duration:1.1s] [animation-delay:0.2s] drop-shadow-[0_0_6px_rgba(229,169,60,0.7)]">♪</span>
+          <span className="text-amber-100 text-2xl animate-bounce [animation-duration:1.6s] [animation-delay:0.5s] drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]">♫</span>
+          <span className="text-[#D97736] text-xl animate-bounce [animation-duration:1.2s] [animation-delay:0.3s] drop-shadow-[0_0_6px_rgba(217,119,54,0.7)]">♬</span>
+          <span className="text-amber-300 text-lg animate-bounce [animation-duration:1.5s] [animation-delay:0.7s] drop-shadow-[0_0_6px_rgba(245,158,11,0.7)]">♩</span>
+        </div>
+      </div>
+
+      {/* Cadence Equalizer Bars Underneath */}
+      <div className="mt-2.5 pt-2 border-t border-amber-900/40 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+          <span className="text-[10px] font-mono uppercase tracking-wider text-amber-200/90 font-semibold">
+            Madeh Cadence • ♩ = 108 BPM
+          </span>
+        </div>
+        <FrequencyEqualizer barsCount={14} className="h-5" />
+      </div>
+    </div>
+  );
+}

@@ -9,12 +9,15 @@ export const MAJOR_TO_SECTION_MAP: Record<string, InstrumentSection> = {
   'Euphonium Major': 'Euphonium',
   'Dish Major': 'Dish',
   'SideDrum Major': 'SideDrum',
+  'SideDrum/BaseDrum Major': 'SideDrum',
+  'Trombone Major': 'Trombone',
 };
 
 export const ALL_SECTIONS: InstrumentSection[] = [
   'Trumpet',
   'Saxophone',
   'Euphonium',
+  'Trombone',
   'Dish',
   'SideDrum',
 ];
@@ -25,8 +28,11 @@ export const ALL_ROLES: Role[] = [
   'Trumpet Major',
   'Saxophone Major',
   'Euphonium Major',
+  'Trombone Major',
   'Dish Major',
   'SideDrum Major',
+  'SideDrum/BaseDrum Major',
+  'Instrument Maintainer',
   'Band Member / Player',
 ];
 
@@ -89,17 +95,28 @@ export function canAccessFullFinancials(role: Role): boolean {
 
 /**
  * Permission: Mark practice attendance
- * Only Overall Major can mark practice attendance
+ * Exclusively restricted to Overall Major.
+ * All other members (including Section Majors) have view-only access.
  */
 export function canMarkAttendance(role: Role): boolean {
   return role === 'Overall Major';
 }
 
 /**
- * Permission: View attendance reports
+ * Permission: View attendance of all members
+ * Exclusively restricted to Overall Major.
+ * All other members (including Section Majors) can only view their own particular attendance record.
+ */
+export function canViewAllAttendance(role: Role): boolean {
+  return role === 'Overall Major';
+}
+
+/**
+ * Permission: View full band attendance analytics reports
+ * Exclusively restricted to Overall Major.
  */
 export function canViewAttendanceReports(role: Role): boolean {
-  return role === 'Overall Major' || isInstrumentMajor(role) || role === 'Treasurer';
+  return role === 'Overall Major';
 }
 
 /**

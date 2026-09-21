@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUsers, addUser } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
-import { canManageAllUsers, canManageSectionUsers } from '@/lib/rbac';
+import { canManageAllUsers, canManageSectionUsers, isInstrumentMajor, isOverallMajor, getManagedSection } from '@/lib/rbac';
 import { User } from '@/types/band';
 
 export async function GET(req: NextRequest) {
@@ -10,12 +10,18 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const section = searchParams.get('section');
     const role = searchParams.get('role');
+    const all = searchParams.get('all');
 
     let allUsers = getUsers();
 
-    if (section && section !== 'All') {
+    // Section Major (e.g. Trumpet Major) strictly sees only their section players
+    if (user && isInstrumentMajor(user.role) && !isOverallMajor(user.role) && all !== 'true') {
+      const managedSection = getManagedSection(user.role) || user.section;
+      allUsers = allUsers.filter(u => u.section === managedSection);
+    } else if (section && section !== 'All') {
       allUsers = allUsers.filter(u => u.section === section);
     }
+
     if (role && role !== 'All') {
       allUsers = allUsers.filter(u => u.role === role);
     }

@@ -146,18 +146,18 @@ export function ExecutiveDashboard() {
           <p className="text-[10px] text-emerald-500 font-medium mt-1">Drills & practices</p>
         </Card>
 
-        <Card className="p-4 border-l-4 border-l-blue-500">
-          <p className="text-xs text-muted-foreground font-medium">Repertoire Tunes</p>
+        <Card className="p-4 border-l-4 border-l-amber-500">
+          <p className="text-xs text-muted-foreground font-medium">Stored Madeh Notes</p>
           <p className="text-2xl font-serif font-bold text-foreground mt-1">
             {tunes.length}
           </p>
-          <p className="text-[10px] text-muted-foreground mt-1">Master sheet library</p>
+          <p className="text-[10px] text-muted-foreground mt-1">Milad score archive</p>
         </Card>
 
         <Card className="p-4 border-l-4 border-l-purple-500">
           <p className="text-xs text-muted-foreground font-medium">Instrument Sections</p>
           <p className="text-2xl font-serif font-bold text-foreground mt-1">5</p>
-          <p className="text-[10px] text-muted-foreground mt-1">Brass, Woodwinds & Percussion</p>
+          <p className="text-[10px] text-muted-foreground mt-1">Brass, Woodwinds &amp; Percussion</p>
         </Card>
       </div>
 
@@ -169,7 +169,7 @@ export function ExecutiveDashboard() {
           onClick={() => setActiveTab('attendance')}
           className="text-xs gap-1.5"
         >
-          <CalendarCheck className="w-3.5 h-3.5" /> Practice Attendance & Reports
+          <CalendarCheck className="w-3.5 h-3.5" /> Practice Attendance &amp; Reports
         </Button>
         <Button
           variant={activeTab === 'members' ? 'gold' : 'ghost'}
@@ -185,7 +185,7 @@ export function ExecutiveDashboard() {
           onClick={() => setActiveTab('tunes')}
           className="text-xs gap-1.5"
         >
-          <Music className="w-3.5 h-3.5" /> Master Repertoire ({tunes.length})
+          <Music className="w-3.5 h-3.5" /> Stored Madeh Library ({tunes.length})
         </Button>
       </div>
 

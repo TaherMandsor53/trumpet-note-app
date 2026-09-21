@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import { RootState } from '@/store';
 import {
@@ -12,14 +12,16 @@ import {
   useAssignTuneMutation,
   useSyncDriveSectionMutation,
 } from '@/store/api/bandApi';
-import { getManagedSection } from '@/lib/rbac';
+import { getManagedSection, isOverallMajor, ALL_SECTIONS } from '@/lib/rbac';
 import { InstrumentSection, User, Tune } from '@/types/band';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { formatDate, getDaysRemainingForNewBadge } from '@/lib/utils';
+import { formatDate, getDaysRemainingForNewBadge, cn } from '@/lib/utils';
+import { AttendanceMarker } from '@/components/attendance/AttendanceMarker';
+import { AttendanceReports } from '@/components/attendance/AttendanceReports';
 import {
   Users,
   Music,
@@ -32,16 +34,35 @@ import {
   Search,
   ExternalLink,
   Check,
+  CalendarCheck,
+  Crown,
 } from 'lucide-react';
 
-export function SectionWorkspace() {
+interface SectionWorkspaceProps {
+  initialSection?: InstrumentSection;
+}
+
+export function SectionWorkspace({ initialSection }: SectionWorkspaceProps = {}) {
   const currentUser = useSelector((state: RootState) => state.auth.user);
   const activeRole = useSelector((state: RootState) => state.auth.activeRole);
 
-  const currentSection: InstrumentSection =
-    (currentUser ? getManagedSection(currentUser.role) : getManagedSection(activeRole)) ||
-    currentUser?.section ||
-    'Trumpet';
+  const role = currentUser?.role || activeRole;
+  const isSuperAdmin = isOverallMajor(role);
+  const managedSec = getManagedSection(role);
+
+  const [selectedAdminSection, setSelectedAdminSection] = useState<InstrumentSection>(initialSection || 'Trumpet');
+
+  // Sync if initialSection changes
+  useEffect(() => {
+    if (initialSection) {
+      setSelectedAdminSection(initialSection);
+    }
+  }, [initialSection]);
+
+  // Instrument Major is strictly locked to their managed section; Overall Major can oversee all
+  const currentSection: InstrumentSection = isSuperAdmin
+    ? selectedAdminSection
+    : (managedSec || currentUser?.section || 'Trumpet');
 
   const { data: usersData, refetch: refetchUsers } = useGetUsersQuery({ section: currentSection });
   const { data: tunesData, refetch: refetchTunes } = useGetTunesQuery({ section: currentSection });
@@ -63,10 +84,25 @@ export function SectionWorkspace() {
   const [playerRank, setPlayerRank] = useState('');
 
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [activeSectionTab, setActiveSectionTab] = useState<'repertoire' | 'attendance'>('repertoire');
 
-  const sectionPlayers = (usersData?.users || []).filter(
-    u => u.section === currentSection && u.role === 'Band Member / Player'
-  );
+  // Exclude executive commanders who don't play as section instrument players
+  const isExecutiveCommander = (u: User) =>
+    u.role === 'Overall Major' ||
+    u.rank?.toLowerCase().includes('overall major') ||
+    u.rank?.toLowerCase().includes('executive command') ||
+    u.rank?.toLowerCase().includes('command overall major');
+
+  // Sort section players: Instrument Major FIRST, then others alphabetically
+  const sectionPlayers = (usersData?.users || [])
+    .filter(u => u.section === currentSection && !isExecutiveCommander(u))
+    .sort((a, b) => {
+      const aIsMajor = a.role.endsWith('Major') || a.role === `${currentSection} Major`;
+      const bIsMajor = b.role.endsWith('Major') || b.role === `${currentSection} Major`;
+      if (aIsMajor && !bIsMajor) return -1;
+      if (!aIsMajor && bIsMajor) return 1;
+      return a.name.localeCompare(b.name);
+    });
   const sectionTunes = (tunesData?.tunes || []).filter(t => t.section === currentSection);
 
   const handleAddPlayer = async (e: React.FormEvent) => {
@@ -145,14 +181,14 @@ export function SectionWorkspace() {
       {/* Workspace Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card border border-border/80 p-5 rounded-xl">
         <div>
-          <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full border border-primary/40 bg-primary/10 text-primary text-xs font-semibold mb-1">
-            <Users className="w-3.5 h-3.5" /> Section Workspace
+          <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 text-xs font-semibold mb-1">
+            <Music className="w-3.5 h-3.5 text-[#D97736]" /> Section Madeh Workspace
           </div>
           <h2 className="text-2xl font-serif font-black tracking-tight text-foreground">
-            {currentSection} Section Command
+            {currentSection === 'SideDrum' ? 'SideDrum/BaseDrum' : currentSection} Section Madeh Command
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Manage section players, assign specialized tune access, and sync Google Drive sheet music.
+            Manage section players, assign specialized Madeh scores for Milad Mubarak, and sync Google Drive sheet music.
           </p>
         </div>
 
@@ -178,52 +214,132 @@ export function SectionWorkspace() {
         </div>
       </div>
 
+      {/* Overall Major Global Section Overseer */}
+      {isSuperAdmin && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 p-2.5 bg-card/70 border border-border/80 rounded-xl">
+          <span className="text-xs font-semibold text-muted-foreground px-1 shrink-0">
+            Overall Major Section Overseer:
+          </span>
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+            {ALL_SECTIONS.map(sec => (
+              <button
+                key={sec}
+                type="button"
+                onClick={() => setSelectedAdminSection(sec)}
+                className={cn(
+                  'px-3.5 py-1 text-xs font-semibold rounded-lg transition-all',
+                  currentSection === sec
+                    ? 'bg-[#D97736] text-white shadow-md'
+                    : 'bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {sec === 'SideDrum' ? 'SideDrum/BaseDrum' : sec}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {syncNotice && (
         <div className="p-3 bg-amber-500/15 border border-amber-500/30 rounded-lg text-xs font-medium text-amber-300">
           {syncNotice}
         </div>
       )}
 
-      {/* Two Column Layout: Players Roster & Section Tunes */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Major Workspace Sub-Navigation Tabs */}
+      <div className="flex items-center gap-2 border-b border-border/80 pb-3">
+        <button
+          type="button"
+          onClick={() => setActiveSectionTab('repertoire')}
+          className={cn(
+            'px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer',
+            activeSectionTab === 'repertoire'
+              ? 'bg-[#D97736] text-white shadow-warm-glow'
+              : 'bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <Music className="w-3.5 h-3.5" />
+          <span>Section Scores &amp; Players ({sectionPlayers.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveSectionTab('attendance')}
+          className={cn(
+            'px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer',
+            activeSectionTab === 'attendance'
+              ? 'bg-[#D97736] text-white shadow-warm-glow'
+              : 'bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <CalendarCheck className="w-3.5 h-3.5" />
+          <span>Practice Attendance Module (Hazri)</span>
+        </button>
+      </div>
+
+      {activeSectionTab === 'attendance' ? (
+        <div className="space-y-6">
+          <AttendanceMarker onSuccess={() => refetchUsers()} />
+          <AttendanceReports />
+        </div>
+      ) : (
+        /* Two Column Layout: Players Roster & Section Tunes */
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left: Section Players Roster */}
         <Card className="border border-border">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <Users className="w-4 h-4 text-primary" />
-                {currentSection} Section Players ({sectionPlayers.length})
+                {currentSection === 'SideDrum' ? 'SideDrum/BaseDrum' : currentSection} Section Players ({sectionPlayers.length})
               </CardTitle>
               <CardDescription className="text-xs">
-                Restricted to {currentSection} players only.
+                Restricted to {currentSection === 'SideDrum' ? 'SideDrum/BaseDrum' : currentSection} players only.
               </CardDescription>
             </div>
           </CardHeader>
           <CardContent className="space-y-2">
             {sectionPlayers.length === 0 ? (
               <p className="text-xs text-muted-foreground py-6 text-center">
-                No players currently registered in the {currentSection} section.
+                No players currently registered in the {currentSection === 'SideDrum' ? 'SideDrum/BaseDrum' : currentSection} section.
               </p>
             ) : (
-              sectionPlayers.map(player => (
-                <div
-                  key={player.id}
-                  className="flex items-center justify-between p-3 rounded-lg border border-border/60 bg-muted/20 hover:bg-muted/40 transition-colors text-xs"
-                >
-                  <div>
-                    <h4 className="font-semibold text-foreground">{player.name}</h4>
-                    <p className="text-[11px] text-muted-foreground font-mono">{player.email}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="outline" className="text-[10px] py-0">
-                        {player.rank || 'Player'}
-                      </Badge>
-                      {player.phone && (
-                        <span className="text-[10px] text-muted-foreground font-medium">
-                          {player.phone}
-                        </span>
-                      )}
+              sectionPlayers.map(player => {
+                const isMajor = player.role.endsWith('Major') || player.role === `${currentSection} Major`;
+
+                return (
+                  <div
+                    key={player.id}
+                    className={cn(
+                      'flex items-center justify-between p-3 rounded-lg border transition-colors text-xs',
+                      isMajor
+                        ? 'border-amber-500/40 bg-amber-500/10'
+                        : 'border-border/60 bg-muted/20 hover:bg-muted/40'
+                    )}
+                  >
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        {isMajor && <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                        <h4 className={cn('font-semibold', isMajor ? 'text-amber-300 font-bold' : 'text-foreground')}>
+                          {player.name}
+                        </h4>
+                        {isMajor && (
+                          <Badge className="bg-[#D97736] text-white text-[9px] py-0 px-1 font-bold uppercase">
+                            Section Major
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{player.email}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge variant="outline" className="text-[10px] py-0">
+                          {player.rank || (isMajor ? `${currentSection} Major` : 'Player')}
+                        </Badge>
+                        {player.phone && (
+                          <span className="text-[10px] text-muted-foreground font-medium font-mono">
+                            {player.phone}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -234,8 +350,9 @@ export function SectionWorkspace() {
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>
-              ))
-            )}
+              );
+            })
+          )}
           </CardContent>
         </Card>
 
@@ -245,7 +362,7 @@ export function SectionWorkspace() {
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <Music className="w-4 h-4 text-amber-400" />
-                {currentSection} Sheet Music & Assignments ({sectionTunes.length})
+                {currentSection === 'SideDrum' ? 'SideDrum/BaseDrum' : currentSection} Sheet Music & Assignments ({sectionTunes.length})
               </CardTitle>
               <CardDescription className="text-xs">
                 Assigned tune access per player with 15-day NEW tag.
@@ -332,6 +449,7 @@ export function SectionWorkspace() {
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* Add Player Dialog */}
       <Dialog open={isAddPlayerModalOpen} onOpenChange={setIsAddPlayerModalOpen}>

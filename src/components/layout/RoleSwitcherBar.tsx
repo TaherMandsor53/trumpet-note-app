@@ -39,7 +39,7 @@ export const DEMO_PROFILES = [
     color: 'bg-blue-500/20 text-blue-300 border-blue-500/40 hover:bg-blue-500/30',
   },
   {
-    label: 'SideDrum Major',
+    label: 'SideDrum/BaseDrum Major',
     role: 'SideDrum Major' as Role,
     email: 'sidedrum.major@taheriscout.org',
     badge: 'Drums Section',

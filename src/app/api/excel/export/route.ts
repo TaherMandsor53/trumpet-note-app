@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getFinancials, getAttendanceSessions } from '@/lib/db';
+import { getFinancials, getAttendanceSessions, getUsers } from '@/lib/db';
 import { exportFinancialsToExcel, exportAttendanceToExcel } from '@/lib/excel-parser';
 import { getCurrentUser } from '@/lib/auth';
-import { canAccessFullFinancials } from '@/lib/rbac';
+import { canAccessFullFinancials, isInstrumentMajor, isOverallMajor, getManagedSection } from '@/lib/rbac';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,12 +27,17 @@ export async function GET(req: NextRequest) {
       });
     } else if (type === 'attendance') {
       const sessions = getAttendanceSessions();
-      const buffer = exportAttendanceToExcel(sessions);
+      let users = getUsers();
+      if (user && isInstrumentMajor(user.role) && !isOverallMajor(user.role)) {
+        const managedSection = getManagedSection(user.role) || user.section;
+        users = users.filter(u => u.section === managedSection);
+      }
+      const buffer = exportAttendanceToExcel(sessions, users);
 
       return new NextResponse(buffer as any, {
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'Content-Disposition': `attachment; filename="Taheri_Scout_Band_Attendance_Report.xlsx"`,
+          'Content-Disposition': `attachment; filename="Attendance_Details.xlsx"`,
         },
       });
     }

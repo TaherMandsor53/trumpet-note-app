@@ -208,14 +208,14 @@ export function MemberPortal() {
             <div>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Music className="w-5 h-5 text-amber-400" />
-                Your Assigned Sheet Music & Section Repertoire
+                Your Stored Madeh Notes &amp; Section Repertoire
               </CardTitle>
               <CardDescription className="text-xs">
-                Tune notes assigned directly to you by your Instrument Major and Overall Major.
+                Sacred Madeh scores assigned directly to you for Mola's Milad Mubarak processions and rehearsal drills.
               </CardDescription>
             </div>
             <Badge variant="outline" className="text-xs">
-              {tunes.length} Available Tunes
+              {tunes.length} Stored Madeh Notes
             </Badge>
           </div>
         </CardHeader>

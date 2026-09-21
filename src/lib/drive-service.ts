@@ -20,6 +20,11 @@ export const DRIVE_SECTION_FOLDERS: Record<
     folderName: 'Euphonium Bass Clef & Bb Parts',
     path: '/Taheri Scout Band/Sheet Music/Euphonium',
   },
+  Trombone: {
+    folderId: 'gdrive_folder_trombone_06',
+    folderName: 'Trombone Tenor Slide Notations',
+    path: '/Taheri Scout Band/Sheet Music/Trombone',
+  },
   Dish: {
     folderId: 'gdrive_folder_dish_04',
     folderName: 'Dish & Cymbals Cadence Scores',

@@ -10,26 +10,26 @@
     --font-sans: 'Plus Jakarta Sans', Inter, sans-serif;
     --font-display: 'Outfit', 'Plus Jakarta Sans', sans-serif;
 
-    /* Light Theme: Sand Linen & Warm Espresso */
-    --background: 38 45% 97%;
-    --foreground: 18 45% 12%;
-    --card: 38 30% 99%;
-    --card-foreground: 18 45% 12%;
-    --popover: 38 30% 99%;
-    --popover-foreground: 18 45% 12%;
-    --primary: 24 72% 48%;
-    --primary-foreground: 38 45% 98%;
-    --secondary: 35 30% 92%;
-    --secondary-foreground: 18 40% 16%;
-    --muted: 35 25% 91%;
-    --muted-foreground: 18 15% 44%;
-    --accent: 24 65% 92%;
-    --accent-foreground: 24 70% 30%;
-    --destructive: 0 80% 55%;
+    /* Dark Theme Default: Rich Roasted Espresso, Terracotta & Caramel Gold */
+    --background: 18 38% 7%;
+    --foreground: 36 35% 95%;
+    --card: 18 35% 10%;
+    --card-foreground: 36 35% 95%;
+    --popover: 18 35% 10%;
+    --popover-foreground: 36 35% 95%;
+    --primary: 24 75% 53%;
+    --primary-foreground: 18 40% 6%;
+    --secondary: 18 24% 16%;
+    --secondary-foreground: 36 35% 92%;
+    --muted: 18 22% 14%;
+    --muted-foreground: 24 16% 65%;
+    --accent: 24 45% 20%;
+    --accent-foreground: 36 80% 88%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 32 25% 86%;
-    --input: 32 25% 86%;
-    --ring: 24 72% 48%;
+    --border: 18 24% 18%;
+    --input: 18 24% 18%;
+    --ring: 24 75% 53%;
     --radius: 0.85rem;
   }
 
@@ -112,20 +112,9 @@
   background: radial-gradient(ellipse 80% 60% at 50% -10%, #542714 0%, #2A150C 55%, #160B06 100%);
 }
 
-.light .bg-havenly-hero {
-  background: radial-gradient(ellipse 80% 60% at 50% -10%, #F5EAE0 0%, #FAF6F0 60%, #FAF6F0 100%);
-}
-
 /* Frosted Glassmorphic Panels */
 .glass-panel-warm {
   background: rgba(38, 21, 15, 0.65);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(217, 119, 54, 0.18);
-}
-
-.light .glass-panel-warm {
-  background: rgba(255, 255, 255, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(217, 119, 54, 0.18);
@@ -136,13 +125,6 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.light .glass-pill-warm {
-  background: rgba(239, 230, 220, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(217, 119, 54, 0.2);
 }
 
 /* Animated Equalizer Waveform */

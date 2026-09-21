@@ -19,7 +19,10 @@ export const bandApi = createApi({
     getMe: builder.query<{ authenticated: boolean; user: User | null }, void>({
       query: () => '/auth/me',
     }),
-    loginUser: builder.mutation<{ success: boolean; user: User; token: string }, { role?: string; email?: string; userId?: string }>({
+    loginUser: builder.mutation<
+      { success: boolean; user: User; token: string; message?: string },
+      { username?: string; email?: string; password?: string; role?: string; userId?: string }
+    >({
       query: (body) => ({
         url: '/auth/login',
         method: 'POST',
@@ -34,13 +37,45 @@ export const bandApi = createApi({
       }),
       invalidatesTags: ['Users', 'Financials', 'PersonalFinancials', 'Attendance', 'Reports', 'Tunes'],
     }),
+    verifyForgotUser: builder.mutation<
+      { exists: boolean; user: { name: string; username: string; email: string; role: string; section: string }; message: string },
+      { username: string }
+    >({
+      query: (body) => ({
+        url: '/auth/forgot-password',
+        method: 'POST',
+        body: { action: 'verify', ...body },
+      }),
+    }),
+    resetPassword: builder.mutation<
+      { success: boolean; message: string; sheetSynced?: boolean },
+      { username: string; newPassword: string }
+    >({
+      query: (body) => ({
+        url: '/auth/forgot-password',
+        method: 'POST',
+        body: { action: 'reset', ...body },
+      }),
+      invalidatesTags: ['Users'],
+    }),
+    syncGoogleSheetMembers: builder.mutation<
+      { success: boolean; count: number; source: string; message: string; sheetUrl: string; sheetName: string },
+      void
+    >({
+      query: () => ({
+        url: '/auth/sync-sheet',
+        method: 'POST',
+      }),
+      invalidatesTags: ['Users'],
+    }),
 
     // Users
-    getUsers: builder.query<{ users: User[] }, { section?: string; role?: string } | void>({
+    getUsers: builder.query<{ users: User[] }, { section?: string; role?: string; all?: string } | void>({
       query: (params) => {
         const queryParams = new URLSearchParams();
         if (params?.section) queryParams.append('section', params.section);
         if (params?.role) queryParams.append('role', params.role);
+        if (params?.all) queryParams.append('all', params.all);
         return `/users?${queryParams.toString()}`;
       },
       providesTags: ['Users'],
@@ -179,6 +214,9 @@ export const {
   useGetMeQuery,
   useLoginUserMutation,
   useLogoutUserMutation,
+  useVerifyForgotUserMutation,
+  useResetPasswordMutation,
+  useSyncGoogleSheetMembersMutation,
   useGetUsersQuery,
   useCreateUserMutation,
   useUpdateUserMutation,

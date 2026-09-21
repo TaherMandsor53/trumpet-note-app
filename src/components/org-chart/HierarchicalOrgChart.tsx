@@ -38,7 +38,7 @@ import {
 import { cn } from '@/lib/utils';
 
 export function HierarchicalOrgChart() {
-  const { data, isLoading } = useGetUsersQuery();
+  const { data, isLoading } = useGetUsersQuery({ all: 'true' });
   const users = data?.users || [];
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -51,6 +51,7 @@ export function HierarchicalOrgChart() {
     Trumpet: true,
     Saxophone: true,
     Euphonium: true,
+    Trombone: true,
     Dish: true,
     SideDrum: true,
   });
@@ -64,6 +65,7 @@ export function HierarchicalOrgChart() {
       Trumpet: true,
       Saxophone: true,
       Euphonium: true,
+      Trombone: true,
       Dish: true,
       SideDrum: true,
     });
@@ -74,6 +76,7 @@ export function HierarchicalOrgChart() {
       Trumpet: false,
       Saxophone: false,
       Euphonium: false,
+      Trombone: false,
       Dish: false,
       SideDrum: false,
     });
@@ -115,6 +118,14 @@ export function HierarchicalOrgChart() {
       color: 'text-yellow-300',
       accentBorder: 'border-yellow-400',
       accentBg: 'bg-yellow-400/10',
+    },
+    {
+      section: 'Trombone',
+      majorRole: 'Trombone Major',
+      icon: <Music2 className="w-4 h-4 text-amber-500" />,
+      color: 'text-amber-500',
+      accentBorder: 'border-amber-600',
+      accentBg: 'bg-amber-600/10',
     },
     {
       section: 'Dish',
@@ -235,7 +246,7 @@ export function HierarchicalOrgChart() {
 
           {/* Section Filter Pills */}
           <div className="flex items-center gap-1.5 overflow-x-auto max-w-full no-scrollbar py-1">
-            {['All', 'Trumpet', 'Saxophone', 'Euphonium', 'Dish', 'SideDrum'].map(sec => (
+            {['All', 'Trumpet', 'Saxophone', 'Euphonium', 'Trombone', 'Dish', 'SideDrum'].map(sec => (
               <button
                 key={sec}
                 onClick={() => setSelectedSection(sec)}
@@ -246,7 +257,7 @@ export function HierarchicalOrgChart() {
                     : 'bg-background/60 text-muted-foreground border-border/70 hover:bg-muted'
                 )}
               >
-                {sec}
+                {sec === 'SideDrum' ? 'SideDrum/BaseDrum' : sec}
               </button>
             ))}
           </div>

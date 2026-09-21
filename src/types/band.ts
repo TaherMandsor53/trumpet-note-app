@@ -6,6 +6,9 @@ export type Role =
   | 'Euphonium Major'
   | 'Dish Major'
   | 'SideDrum Major'
+  | 'SideDrum/BaseDrum Major'
+  | 'Trombone Major'
+  | 'Instrument Maintainer'
   | 'Band Member / Player';
 
 export type InstrumentSection =
@@ -13,15 +16,22 @@ export type InstrumentSection =
   | 'Saxophone'
   | 'Euphonium'
   | 'Dish'
-  | 'SideDrum';
+  | 'SideDrum'
+  | 'SideDrum/BaseDrum'
+  | 'Trombone';
 
 export interface User {
   id: string;
+  itsNumber?: string;
   name: string;
   email: string;
+  username?: string;
+  password?: string;
   role: Role;
   section: InstrumentSection;
   phone?: string;
+  address?: string;
+  jamaat?: string;
   avatar?: string;
   rank?: string;
   joinedDate: string;

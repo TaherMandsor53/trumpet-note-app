@@ -81,14 +81,14 @@ export function NoteTransposer() {
     <div className="space-y-6 max-w-3xl mx-auto">
       <Card className="border border-border shadow-md">
         <CardHeader>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-primary/40 bg-primary/10 text-primary text-xs font-semibold mb-1">
-            <Music className="w-3.5 h-3.5" /> Scout Notation Utility
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 text-xs font-semibold mb-1">
+            <Music className="w-3.5 h-3.5 text-[#D97736]" /> Madeh Composition &amp; Transposition
           </div>
           <CardTitle className="text-xl font-serif font-black">
-            Instrument Note Transposer & Converter
+            Compose &amp; Transpose Madeh Notes
           </CardTitle>
           <CardDescription className="text-xs">
-            Convert standard musical notation alphabets into trumpet and brass valve fingerings (e.g. 1 0 2 0) and generate printable PDFs.
+            Compose and convert standard Madeh melodies into trumpet and brass valve fingerings (e.g. 1 0 2 0) for Milad Mubarak processions and generate printable score PDFs.
           </CardDescription>
         </CardHeader>
 

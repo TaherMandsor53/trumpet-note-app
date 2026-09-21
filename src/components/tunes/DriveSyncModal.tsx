@@ -20,7 +20,7 @@ export function DriveSyncModal({ open, onOpenChange, onSuccess }: Props) {
   const [selectedSection, setSelectedSection] = useState<InstrumentSection>('Trumpet');
   const [syncResult, setSyncResult] = useState<DriveFolderSyncResult | null>(null);
 
-  const sections: InstrumentSection[] = ['Trumpet', 'Saxophone', 'Euphonium', 'Dish', 'SideDrum'];
+  const sections: InstrumentSection[] = ['Trumpet', 'Saxophone', 'Euphonium', 'Trombone', 'Dish', 'SideDrum'];
 
   const handleSync = async () => {
     try {
@@ -67,13 +67,13 @@ export function DriveSyncModal({ open, onOpenChange, onSuccess }: Props) {
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-foreground">{s} Section</span>
+                    <span className="font-bold text-foreground">{s === 'SideDrum' ? 'SideDrum/BaseDrum' : s} Section</span>
                     <Badge variant="outline" className="text-[9px] py-0">
                       Cloud Sync
                     </Badge>
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-1 truncate">
-                    {folder.path}
+                    {folder?.path || `/Taheri Scout Band/Sheet Music/${s}`}
                   </p>
                 </div>
               );

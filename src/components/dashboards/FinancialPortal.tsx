@@ -243,7 +243,7 @@ export function FinancialPortal() {
             <option value="Saxophone">Saxophone</option>
             <option value="Euphonium">Euphonium</option>
             <option value="Dish">Dish</option>
-            <option value="SideDrum">SideDrum</option>
+            <option value="SideDrum">SideDrum/BaseDrum</option>
           </Select>
         </div>
       </div>

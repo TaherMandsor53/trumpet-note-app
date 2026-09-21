@@ -34,6 +34,36 @@ function getDatabase() {
       financials: [...INITIAL_LAVAJAM],
       attendance: [...INITIAL_ATTENDANCE_SESSIONS],
     };
+  } else {
+    // Ensure all INITIAL_USERS from Member Details sheet are present and up-to-date in memory
+    const existing = globalThis.__bandDatabase.users;
+    for (const initUser of INITIAL_USERS) {
+      const idx = existing.findIndex(
+        u =>
+          u.id === initUser.id ||
+          (initUser.itsNumber && u.itsNumber === initUser.itsNumber) ||
+          (initUser.username && u.username?.toLowerCase() === initUser.username.toLowerCase()) ||
+          (initUser.email && u.email?.toLowerCase() === initUser.email.toLowerCase())
+      );
+      if (idx === -1) {
+        existing.push({ ...initUser });
+      } else {
+        // Sync attributes while preserving any runtime password changes
+        existing[idx] = {
+          ...existing[idx],
+          ...initUser,
+          password: existing[idx].password || initUser.password,
+          role: initUser.role,
+          section: initUser.section,
+          rank: initUser.rank,
+        };
+      }
+    }
+
+    // Purge any old mock users or non-sheet users
+    globalThis.__bandDatabase.users = existing.filter(u =>
+      INITIAL_USERS.some(init => init.id === u.id || init.itsNumber === u.itsNumber)
+    );
   }
   return globalThis.__bandDatabase;
 }
@@ -50,6 +80,86 @@ export function getUserById(id: string): User | undefined {
 
 export function getUserByEmail(email: string): User | undefined {
   return getDatabase().users.find(u => u.email.toLowerCase() === email.toLowerCase());
+}
+
+export function getUserByUsernameOrEmail(identifier: string): User | undefined {
+  if (!identifier) return undefined;
+  const clean = identifier.trim().toLowerCase();
+  const cleanDigits = identifier.trim().replace(/\D/g, '');
+
+  return getDatabase().users.find(u => {
+    // 1. Exact match with username or email (case-insensitive)
+    if (u.username && u.username.toLowerCase() === clean) return true;
+    if (u.email && u.email.toLowerCase() === clean) return true;
+
+    // 2. Match username prefix before @ (e.g. "burhanuddinGulamali" matching "burhanuddinGulamali@tsgband.com")
+    if (u.username) {
+      const uPrefix = u.username.toLowerCase().split('@')[0];
+      if (uPrefix === clean) return true;
+    }
+    if (u.email) {
+      const ePrefix = u.email.toLowerCase().split('@')[0];
+      if (ePrefix === clean) return true;
+    }
+
+    // 3. Match ITS Number (e.g. "40405751")
+    if (u.itsNumber && (u.itsNumber.trim() === clean || (cleanDigits && u.itsNumber.trim() === cleanDigits))) {
+      return true;
+    }
+
+    // 4. Match Phone / Mobile Number (e.g. "7405275368")
+    if (cleanDigits && cleanDigits.length >= 7 && u.phone) {
+      const uDigits = u.phone.replace(/\D/g, '');
+      if (uDigits === cleanDigits || uDigits.endsWith(cleanDigits) || cleanDigits.endsWith(uDigits)) {
+        return true;
+      }
+    }
+
+    // 5. Match Full Name (e.g. "BURHANUDDIN ABBASBHAI GULAMALI")
+    if (u.name && u.name.toLowerCase().trim() === clean) {
+      return true;
+    }
+
+    return false;
+  });
+}
+
+export function updateUserPassword(identifier: string, newPassword: string): boolean {
+  const db = getDatabase();
+  const clean = identifier.trim().toLowerCase();
+  const cleanDigits = identifier.trim().replace(/\D/g, '');
+
+  const index = db.users.findIndex(u => {
+    if (u.username && u.username.toLowerCase() === clean) return true;
+    if (u.email && u.email.toLowerCase() === clean) return true;
+    if (u.username && u.username.toLowerCase().split('@')[0] === clean) return true;
+    if (u.email && u.email.toLowerCase().split('@')[0] === clean) return true;
+    if (u.itsNumber && (u.itsNumber.trim() === clean || (cleanDigits && u.itsNumber.trim() === cleanDigits))) return true;
+    return false;
+  });
+
+  if (index === -1) return false;
+  db.users[index] = {
+    ...db.users[index],
+    password: newPassword,
+  };
+  return true;
+}
+
+export function syncUsersWithSheet(sheetUsers: User[]): void {
+  const db = getDatabase();
+  for (const sUser of sheetUsers) {
+    const existingIndex = db.users.findIndex(
+      u =>
+        (sUser.username && u.username?.toLowerCase() === sUser.username.toLowerCase()) ||
+        (sUser.email && u.email.toLowerCase() === sUser.email.toLowerCase())
+    );
+    if (existingIndex >= 0) {
+      db.users[existingIndex] = { ...db.users[existingIndex], ...sUser };
+    } else {
+      db.users.push(sUser);
+    }
+  }
 }
 
 export function addUser(user: Omit<User, 'id'>): User {
@@ -142,6 +252,7 @@ export function getAttendanceMetrics(): AttendanceReportMetrics {
     Trumpet: { present: 0, total: 0 },
     Saxophone: { present: 0, total: 0 },
     Euphonium: { present: 0, total: 0 },
+    Trombone: { present: 0, total: 0 },
     Dish: { present: 0, total: 0 },
     SideDrum: { present: 0, total: 0 },
   };
@@ -154,10 +265,11 @@ export function getAttendanceMetrics(): AttendanceReportMetrics {
       else if (r.status === 'Late') totalLate++;
       else if (r.status === 'Excused') totalExcused++;
 
-      if (sectionStats[r.section]) {
-        sectionStats[r.section].total++;
+      const secKey = (r.section === 'SideDrum/BaseDrum' ? 'SideDrum' : r.section) as InstrumentSection;
+      if (sectionStats[secKey]) {
+        sectionStats[secKey].total++;
         if (r.status === 'Present' || r.status === 'Late') {
-          sectionStats[r.section].present++;
+          sectionStats[secKey].present++;
         }
       }
     });
