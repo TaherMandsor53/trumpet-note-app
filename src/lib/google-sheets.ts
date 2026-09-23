@@ -1,5 +1,17 @@
-import { User, Role, InstrumentSection, AttendanceSession } from '@/types/band';
-import { getUsers, updateUserPassword, syncUsersWithSheet, getUserByUsernameOrEmail } from './db';
+import { User, Role, InstrumentSection, AttendanceSession, LavajamRecord, ExpenseRecord } from '@/types/band';
+import {
+  getUsers,
+  updateUserPassword,
+  syncUsersWithSheet,
+  getUserByUsernameOrEmail,
+  getFinancials,
+  setFinancials,
+  getExpenses,
+  setExpenses,
+} from './db';
+import * as XLSX from 'xlsx';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface GoogleSheetConfig {
   sheetUrl: string;
@@ -323,6 +335,175 @@ export async function syncMemberDetailsFromSheet(): Promise<{
 }
 
 /**
+ * Fetches and synchronizes Lavajam Details directly from Google Sheet
+ */
+export async function syncLavajamFromGoogleSheet(): Promise<LavajamRecord[]> {
+  const config = getGoogleSheetConfig();
+  if (!config.appsScriptUrl) return getFinancials();
+
+  try {
+    const url = `${config.appsScriptUrl}?sheet=${encodeURIComponent('Lavajam Details')}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const rows = data.members || [];
+      if (Array.isArray(rows) && rows.length > 0) {
+        const users = getUsers();
+        const mappedRecords: LavajamRecord[] = rows.map((r: any, idx: number) => {
+          const rawName = String(r['Full Name'] || r.name || r.userName || '').trim();
+          const rawFund = String(r['Fund Type'] || r.fundType || 'Lavajam').trim();
+          const isHoob = rawFund.toLowerCase().includes('hoob');
+          const fundType: 'Lavajam' | 'Hoob' = isHoob ? 'Hoob' : 'Lavajam';
+          const amount = Number(r.Amount || r.amount || 0);
+          const date = String(r.Date || r.date || '24/09/2026').trim();
+
+          let section = 'External / Hoob';
+          let userId: string | undefined = undefined;
+
+          if (!isHoob) {
+            const normRaw = rawName.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const matchedUser = users.find(u => {
+              const normU = u.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+              return normU === normRaw || normU.includes(normRaw) || normRaw.includes(normU);
+            });
+            if (matchedUser) {
+              section = matchedUser.section;
+              userId = matchedUser.id;
+            } else {
+              section = 'General';
+            }
+          }
+
+          return {
+            id: `lav-sheet-${idx + 1}`,
+            date: date || '24/09/2026',
+            userId,
+            userName: rawName,
+            fundType,
+            section,
+            year: 2026,
+            month: 'September',
+            amount,
+            status: 'Paid',
+            paidAt: new Date().toISOString(),
+            paymentMethod: isHoob ? 'UPI' : (idx % 2 === 0 ? 'UPI' : 'Cash'),
+            receiptNo: `REC-2026-${String(idx + 1).padStart(3, '0')}`,
+          };
+        });
+
+        setFinancials(mappedRecords);
+
+        // Also write to local Excel file
+        if (typeof window === 'undefined') {
+          try {
+            const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+            if (fs.existsSync(excelPath)) {
+              const wb = XLSX.readFile(excelPath);
+              const excelRows = [
+                ['Date', 'Full Name', 'Fund Type', 'Amount'],
+                ...mappedRecords.map(rec => [
+                  rec.date || '24/09/2026',
+                  rec.userName,
+                  rec.fundType || 'Lavajam',
+                  rec.amount,
+                ]),
+              ];
+              wb.Sheets['Lavajam Details'] = XLSX.utils.aoa_to_sheet(excelRows);
+              if (!wb.SheetNames.includes('Lavajam Details')) {
+                wb.SheetNames.push('Lavajam Details');
+              }
+              XLSX.writeFile(wb, excelPath);
+            }
+          } catch (e) {
+            console.warn('Notice: Excel update during Lavajam sync:', e);
+          }
+        }
+
+        return mappedRecords;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to sync Lavajam Details from Google Sheet:', err);
+  }
+
+  return getFinancials();
+}
+
+/**
+ * Fetches and synchronizes Instrument Expenses directly from Google Sheet
+ */
+export async function syncExpensesFromGoogleSheet(): Promise<ExpenseRecord[]> {
+  const config = getGoogleSheetConfig();
+  if (!config.appsScriptUrl) return getExpenses();
+
+  try {
+    const url = `${config.appsScriptUrl}?sheet=${encodeURIComponent('Instrument Expenses')}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const rows = data.members || [];
+      if (Array.isArray(rows) && rows.length > 0) {
+        const mappedExpenses: ExpenseRecord[] = rows.map((r: any, idx: number) => {
+          const rawDetails = String(r['Expense Details'] || r.expenseDetails || r.name || '').trim();
+          const amount = Number(r.Amount || r.amount || 0);
+          const rawDate = String(r.Date || r.date || '24/09/2026').trim();
+
+          return {
+            id: `exp-sheet-${idx + 1}`,
+            date: rawDate || '24/09/2026',
+            expenseDetails: rawDetails,
+            amount,
+            category: rawDetails.toLowerCase().includes('banner') ? 'Logistics' : 'Instruments',
+          };
+        });
+
+        setExpenses(mappedExpenses);
+
+        if (typeof window === 'undefined') {
+          try {
+            const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+            if (fs.existsSync(excelPath)) {
+              const wb = XLSX.readFile(excelPath);
+              const excelRows = [
+                ['Date', 'Expense Details', 'Amount'],
+                ...mappedExpenses.map(exp => [
+                  exp.date || '24/09/2026',
+                  exp.expenseDetails,
+                  exp.amount,
+                ]),
+              ];
+              wb.Sheets['Instrument Expenses'] = XLSX.utils.aoa_to_sheet(excelRows);
+              if (!wb.SheetNames.includes('Instrument Expenses')) {
+                wb.SheetNames.push('Instrument Expenses');
+              }
+              XLSX.writeFile(wb, excelPath);
+            }
+          } catch (e) {
+            console.warn('Notice: Excel update during Expense sync:', e);
+          }
+        }
+
+        return mappedExpenses;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to sync Instrument Expenses from Google Sheet:', err);
+  }
+
+  return getExpenses();
+}
+
+/**
  * Updates a member's password.
  * 1. Updates password in local database memory.
  * 2. If Google Apps Script Web App URL is configured, dispatches update directly to the Google Sheet.
@@ -499,7 +680,7 @@ export function syncAttendanceToExcelFile(session: AttendanceSession): void {
         rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
       }
 
-      // Filter out empty rows
+      // Filter out completely empty rows
       const cleanRows: any[][] = [];
       for (const r of rows) {
         if (r && Array.isArray(r) && r.some(c => c !== undefined && c !== null && String(c).trim() !== '')) {
@@ -507,12 +688,36 @@ export function syncAttendanceToExcelFile(session: AttendanceSession): void {
         }
       }
 
-      // If sheet is empty or new, build initial base rows using current members
+      // If sheet has old format with 'ITS Number' at Col A, reformat to exact image structure:
+      // Col A: 'Full Name', Col B+: Dates
+      if (cleanRows.length > 0 && String(cleanRows[0][0] || '').trim().toLowerCase() === 'its number') {
+        const migratedRows: any[][] = [['Full Name']];
+        const oldHeaders = cleanRows[0];
+        const dateIndices: { idx: number; name: string }[] = [];
+        for (let c = 3; c < oldHeaders.length; c++) {
+          if (oldHeaders[c]) {
+            dateIndices.push({ idx: c, name: String(oldHeaders[c]).trim() });
+            migratedRows[0].push(String(oldHeaders[c]).trim());
+          }
+        }
+        for (let r = 1; r < Math.min(cleanRows.length, 41); r++) {
+          const memberName = String(cleanRows[r][1] || '').trim();
+          const rowData = [memberName];
+          dateIndices.forEach(di => {
+            rowData.push(cleanRows[r][di.idx] || '');
+          });
+          migratedRows.push(rowData);
+        }
+        cleanRows.length = 0;
+        cleanRows.push(...migratedRows);
+      }
+
+      // If sheet is empty, initialize with 40 members and Full Name header
       if (cleanRows.length === 0) {
-        cleanRows.push(['ITS Number', 'Member Name', 'Section', formattedDate]);
+        cleanRows.push(['Full Name', '22/09/2026', '23/09/2026']);
         const allUsers = getUsers();
-        allUsers.forEach(u => {
-          cleanRows.push([u.itsNumber || '', u.name, u.section || '']);
+        allUsers.slice(0, 40).forEach(u => {
+          cleanRows.push([u.name, '', '']);
         });
       }
 
@@ -525,42 +730,51 @@ export function syncAttendanceToExcelFile(session: AttendanceSession): void {
         return s === formattedDate || s === rawDate;
       });
 
+      // For every new date add that date as column header given in image
       if (dateColIndex === -1) {
         dateColIndex = headerRow.length;
         headerRow.push(formattedDate);
       }
 
-      // Build member index map
-      const memberRowMap: Record<string, number> = {};
-      for (let i = 1; i < cleanRows.length; i++) {
-        const its = String(cleanRows[i][0] || '').trim();
-        const name = String(cleanRows[i][1] || '').trim().toLowerCase();
-        if (its) memberRowMap['its:' + its] = i;
-        if (name) memberRowMap['name:' + name] = i;
+      // Helper to normalize strings (remove spaces, punctuation, lowercase)
+      const normStr = (v: any) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+
+      // Build member index map from existing rows (Column A is Full Name)
+      const nameRowMap: Record<string, number> = {};
+      for (let i = 1; i < Math.min(cleanRows.length, 41); i++) {
+        const nameVal = String(cleanRows[i][0] || '').trim();
+        if (nameVal) {
+          nameRowMap[normStr(nameVal)] = i;
+        }
       }
 
       // Update attendance status for each record in session
+      // ONLY update existing members on the date column - NEVER add new rows, names, or ITS
       session.records.forEach(rec => {
-        const recName = String(rec.userName || '').trim();
-        const recNameKey = recName.toLowerCase();
-        const recIts = String(rec.userId || '').replace(/^sheet-/, '').trim();
+        const recName = String(rec.userName || (rec as any).name || '').trim();
+        const recNameNorm = normStr(recName);
         const statusVal = rec.status; // 'Present' | 'Absent' | 'Late'
 
-        let targetRowIndex = memberRowMap['its:' + recIts] || memberRowMap['name:' + recNameKey];
+        if (!statusVal) return;
 
-        if (!targetRowIndex) {
-          // If member is not yet in Attendance Details, add new member row
-          const newRow = [recIts || '', recName, rec.section || ''];
-          while (newRow.length < dateColIndex) {
-            newRow.push('');
+        let targetRowIndex: number | undefined = undefined;
+
+        if (recNameNorm && nameRowMap[recNameNorm] !== undefined) {
+          targetRowIndex = nameRowMap[recNameNorm];
+        } else if (recNameNorm) {
+          // Partial fuzzy match against existing Full Name list
+          const keys = Object.keys(nameRowMap);
+          for (const key of keys) {
+            if (recNameNorm.includes(key) || key.includes(recNameNorm)) {
+              targetRowIndex = nameRowMap[key];
+              break;
+            }
           }
-          newRow[dateColIndex] = statusVal;
-          cleanRows.push(newRow);
-          targetRowIndex = cleanRows.length - 1;
-          if (recIts) memberRowMap['its:' + recIts] = targetRowIndex;
-          if (recNameKey) memberRowMap['name:' + recNameKey] = targetRowIndex;
-        } else {
-          // Pad row if needed
+        }
+
+        // ONLY update attendance (Present, Absent, Late) for existing member on the selected date
+        // DO NOT add name or ITS
+        if (targetRowIndex !== undefined) {
           while (cleanRows[targetRowIndex].length <= dateColIndex) {
             cleanRows[targetRowIndex].push('');
           }
@@ -568,7 +782,10 @@ export function syncAttendanceToExcelFile(session: AttendanceSession): void {
         }
       });
 
-      const newWs = XLSX.utils.aoa_to_sheet(cleanRows);
+      // Strictly limit to 41 rows (1 header + 40 members)
+      const finalRows = cleanRows.slice(0, 41);
+
+      const newWs = XLSX.utils.aoa_to_sheet(finalRows);
       wb.Sheets[sheetName] = newWs;
       if (!wb.SheetNames.includes(sheetName)) {
         wb.SheetNames.push(sheetName);
@@ -622,7 +839,9 @@ export async function syncAttendanceToSheet(session: AttendanceSession): Promise
         markedBy: session.markedBy,
         records: session.records.map(r => ({
           userId: r.userId,
+          itsNumber: (r as any).itsNumber || String(r.userId || '').replace(/^sheet-/, '').trim(),
           name: r.userName,
+          userName: r.userName,
           section: r.section,
           status: r.status, // 'Present' | 'Absent' | 'Late'
           notes: r.notes || '',
@@ -987,3 +1206,248 @@ export async function deleteMemberFromGoogleSheet(userOrId: {
       : 'Member deleted from official roster and local Excel sheet.',
   };
 }
+
+/**
+ * Synchronizes Lavajam contribution record with local Excel file
+ * (TAHERI_SCOUT_BAND_GROUP_1448H.xlsx -> Lavajam Details sheet)
+ */
+export function syncLavajamToExcel(
+  record: LavajamRecord,
+  action: 'add' | 'update' | 'delete',
+  originalName?: string
+): void {
+  if (typeof window === 'undefined') {
+    try {
+      const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+      if (!fs.existsSync(excelPath)) return;
+
+      const wb = XLSX.readFile(excelPath);
+      const ws = wb.Sheets['Lavajam Details'];
+      let rows: any[][] = [];
+
+      if (!ws) {
+        rows = [['Date', 'Full Name', 'Fund Type', 'Amount']];
+      } else {
+        rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+        if (rows.length === 0) {
+          rows.push(['Date', 'Full Name', 'Fund Type', 'Amount']);
+        }
+      }
+
+      const targetName = (originalName || record.userName || '').trim().toLowerCase();
+      let matchIndex = -1;
+      for (let i = 1; i < rows.length; i++) {
+        const rowName = String(rows[i]?.[1] || '').trim().toLowerCase();
+        if (rowName === targetName) {
+          matchIndex = i;
+          break;
+        }
+      }
+
+      const dateStr = record.date || '24/09/2026';
+      const fundTypeStr = record.fundType || 'Lavajam';
+      const amountNum = Number(record.amount) || 0;
+
+      if (action === 'delete') {
+        if (matchIndex > 0) {
+          rows.splice(matchIndex, 1);
+        }
+      } else if (action === 'update') {
+        if (matchIndex > 0) {
+          rows[matchIndex] = [
+            dateStr,
+            record.userName,
+            fundTypeStr,
+            amountNum
+          ];
+        } else {
+          rows.push([
+            dateStr,
+            record.userName,
+            fundTypeStr,
+            amountNum
+          ]);
+        }
+      } else if (action === 'add') {
+        rows.push([
+          dateStr,
+          record.userName,
+          fundTypeStr,
+          amountNum
+        ]);
+      }
+
+      const newWs = XLSX.utils.aoa_to_sheet(rows);
+      wb.Sheets['Lavajam Details'] = newWs;
+      if (!wb.SheetNames.includes('Lavajam Details')) {
+        wb.SheetNames.push('Lavajam Details');
+      }
+      XLSX.writeFile(wb, excelPath);
+      console.log('SYNC LAVAJAM SUCCESS: wrote', rows.length, 'rows to', excelPath);
+    } catch (err) {
+      console.error('Failed to sync Lavajam Details to local Excel:', err);
+    }
+  }
+}
+
+/**
+ * Synchronizes Instrument Expense record with local Excel file
+ * (TAHERI_SCOUT_BAND_GROUP_1448H.xlsx -> Instrument Expenses sheet)
+ */
+export function syncExpenseToExcel(
+  expense: ExpenseRecord,
+  action: 'add' | 'update' | 'delete',
+  originalDetails?: string
+): void {
+  if (typeof window === 'undefined') {
+    try {
+      const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+      if (!fs.existsSync(excelPath)) return;
+
+      const wb = XLSX.readFile(excelPath);
+      const ws = wb.Sheets['Instrument Expenses'];
+      let rows: any[][] = [];
+
+      if (!ws) {
+        rows = [['Date', 'Expense Details', 'Amount']];
+      } else {
+        rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+        if (rows.length === 0) {
+          rows.push(['Date', 'Expense Details', 'Amount']);
+        }
+      }
+
+      const targetDetails = (originalDetails || expense.expenseDetails || '').trim().toLowerCase();
+      let matchIndex = -1;
+      for (let i = 1; i < rows.length; i++) {
+        const rowDetails = String(rows[i]?.[1] || '').trim().toLowerCase();
+        if (rowDetails === targetDetails) {
+          matchIndex = i;
+          break;
+        }
+      }
+
+      const dateStr = expense.date || '24/09/2026';
+      const amountNum = Number(expense.amount) || 0;
+
+      if (action === 'delete') {
+        if (matchIndex > 0) {
+          rows.splice(matchIndex, 1);
+        }
+      } else if (action === 'update') {
+        if (matchIndex > 0) {
+          rows[matchIndex] = [
+            dateStr,
+            expense.expenseDetails,
+            amountNum
+          ];
+        } else {
+          rows.push([
+            dateStr,
+            expense.expenseDetails,
+            amountNum
+          ]);
+        }
+      } else if (action === 'add') {
+        rows.push([
+          dateStr,
+          expense.expenseDetails,
+          amountNum
+        ]);
+      }
+
+      const newWs = XLSX.utils.aoa_to_sheet(rows);
+      wb.Sheets['Instrument Expenses'] = newWs;
+      if (!wb.SheetNames.includes('Instrument Expenses')) {
+        wb.SheetNames.push('Instrument Expenses');
+      }
+      XLSX.writeFile(wb, excelPath);
+    } catch (err) {
+      console.warn('Failed to sync Instrument Expenses to local Excel:', err);
+    }
+  }
+}
+
+/**
+ * Posts Lavajam changes to Google Sheet via Google Apps Script Web App
+ */
+export async function postLavajamToGoogleSheet(
+  record: LavajamRecord,
+  action: 'add' | 'update' | 'delete',
+  originalName?: string
+): Promise<{ success: boolean; message: string }> {
+  const config = getGoogleSheetConfig();
+  if (!config.appsScriptUrl) {
+    return { success: false, message: 'Google Apps Script URL not configured.' };
+  }
+  try {
+    const actMap = {
+      add: 'addLavajamRecord',
+      update: 'updateLavajamRecord',
+      delete: 'deleteLavajamRecord',
+    };
+    const response = await fetch(config.appsScriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      redirect: 'follow',
+      body: JSON.stringify({
+        action: actMap[action],
+        record: {
+          date: record.date || '24/09/2026',
+          userName: record.userName,
+          originalName: originalName || record.userName,
+          fundType: record.fundType || 'Lavajam',
+          amount: record.amount,
+        },
+        userName: originalName || record.userName,
+      }),
+    });
+    const resData = await response.json().catch(() => ({}));
+    return { success: true, message: resData.message || 'Synced with Google Sheet' };
+  } catch (err) {
+    console.warn('Failed to sync Lavajam with Google Apps Script:', err);
+    return { success: false, message: 'Failed to sync with Google Sheet' };
+  }
+}
+
+/**
+ * Posts Expense changes to Google Sheet via Google Apps Script Web App
+ */
+export async function postExpenseToGoogleSheet(
+  expense: ExpenseRecord,
+  action: 'add' | 'update' | 'delete',
+  originalDetails?: string
+): Promise<{ success: boolean; message: string }> {
+  const config = getGoogleSheetConfig();
+  if (!config.appsScriptUrl) {
+    return { success: false, message: 'Google Apps Script URL not configured.' };
+  }
+  try {
+    const actMap = {
+      add: 'addExpense',
+      update: 'updateExpense',
+      delete: 'deleteExpense',
+    };
+    const response = await fetch(config.appsScriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      redirect: 'follow',
+      body: JSON.stringify({
+        action: actMap[action],
+        expense: {
+          date: expense.date || '24/09/2026',
+          expenseDetails: expense.expenseDetails,
+          originalDetails: originalDetails || expense.expenseDetails,
+          amount: expense.amount,
+        },
+        expenseDetails: originalDetails || expense.expenseDetails,
+      }),
+    });
+    const resData = await response.json().catch(() => ({}));
+    return { success: true, message: resData.message || 'Synced with Google Sheet' };
+  } catch (err) {
+    console.warn('Failed to sync Expense with Google Apps Script:', err);
+    return { success: false, message: 'Failed to sync with Google Sheet' };
+  }
+}
+

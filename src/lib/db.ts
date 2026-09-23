@@ -2,6 +2,7 @@ import {
   User,
   Tune,
   LavajamRecord,
+  ExpenseRecord,
   AttendanceSession,
   AttendanceReportMetrics,
   InstrumentSection,
@@ -11,6 +12,7 @@ import {
   INITIAL_USERS,
   INITIAL_TUNES,
   INITIAL_LAVAJAM,
+  INITIAL_EXPENSES,
   INITIAL_ATTENDANCE_SESSIONS,
 } from './initial-data';
 import { isTuneNew } from './utils';
@@ -22,6 +24,7 @@ declare global {
     users: User[];
     tunes: Tune[];
     financials: LavajamRecord[];
+    expenses: ExpenseRecord[];
     attendance: AttendanceSession[];
   } | undefined;
 }
@@ -32,9 +35,13 @@ function getDatabase() {
       users: [...INITIAL_USERS],
       tunes: [...INITIAL_TUNES],
       financials: [...INITIAL_LAVAJAM],
+      expenses: [...INITIAL_EXPENSES],
       attendance: [...INITIAL_ATTENDANCE_SESSIONS],
     };
   } else {
+    if (!globalThis.__bandDatabase.expenses) {
+      globalThis.__bandDatabase.expenses = [...INITIAL_EXPENSES];
+    }
     // Ensure all INITIAL_USERS from Member Details sheet are present and up-to-date in memory
     let existing = globalThis.__bandDatabase.users.filter(u => {
       const its = String(u.itsNumber || '').trim();
@@ -71,8 +78,16 @@ function getDatabase() {
     // Keep clean list of users in memory
     globalThis.__bandDatabase.users = existing;
 
-    // Prune test/unnecessary records from attendance sessions
+    // Prune test/dummy records from attendance sessions
     if (globalThis.__bandDatabase.attendance) {
+      globalThis.__bandDatabase.attendance = globalThis.__bandDatabase.attendance.filter(sess => {
+        if (sess.id === 'att-session-001' || sess.id === 'att-session-002' || sess.id === 'att-session-003') return false;
+        if (sess.sessionTitle.includes('Weekly Parade & National Anthem Drill')) return false;
+        if (sess.sessionTitle.includes('Sectional Harmony Practice')) return false;
+        if (sess.sessionTitle.includes('Full Scout Band General Rehearsal')) return false;
+        return true;
+      });
+
       const validUserIds = new Set(existing.map(u => u.id));
       const validIts = new Set(existing.map(u => String(u.itsNumber || '').trim()).filter(Boolean));
       globalThis.__bandDatabase.attendance = globalThis.__bandDatabase.attendance.map(sess => ({
@@ -86,8 +101,77 @@ function getDatabase() {
         }),
       }));
     }
+
+    // If attendance is empty after removing mock records, load real sessions from Attendance Details Excel sheet
+    if (globalThis.__bandDatabase.attendance.length === 0) {
+      globalThis.__bandDatabase.attendance = loadSessionsFromExcel();
+    }
   }
   return globalThis.__bandDatabase;
+}
+
+function loadSessionsFromExcel(): AttendanceSession[] {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const XLSX = require('xlsx');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require('path');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs');
+    const excelPath = path.join(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+    if (!fs.existsSync(excelPath)) return [];
+
+    const wb = XLSX.readFile(excelPath);
+    const ws = wb.Sheets['Attendance Details'];
+    if (!ws) return [];
+
+    const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+    if (rows.length < 2) return [];
+
+    const headers = rows[0];
+    const sessions: AttendanceSession[] = [];
+    const allUsers = getUsers();
+
+    for (let c = 1; c < headers.length; c++) {
+      const headerVal = String(headers[c] || '').trim();
+      if (!/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(headerVal)) continue;
+
+      const dateParts = headerVal.split('/');
+      const isoDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+
+      const records: any[] = [];
+      for (let r = 1; r < Math.min(rows.length, 41); r++) {
+        const memberName = String(rows[r][0] || '').trim();
+        const statusVal = String(rows[r][c] || '').trim();
+        if (statusVal && ['Present', 'Absent', 'Late', 'Excused'].includes(statusVal)) {
+          const userObj = allUsers.find(u => u.name.toLowerCase() === memberName.toLowerCase());
+          records.push({
+            userId: userObj?.id || `user-${r}`,
+            userName: memberName,
+            itsNumber: userObj?.itsNumber || '',
+            section: userObj?.section || 'Trumpet',
+            status: statusVal,
+            notes: '',
+          });
+        }
+      }
+
+      if (records.length > 0) {
+        sessions.push({
+          id: `session-${headerVal.replace(/\//g, '-')}`,
+          date: isoDate,
+          sessionTitle: `Practice Attendance Session (${headerVal})`,
+          sessionType: 'Regular Practice',
+          markedBy: 'Overall Major',
+          records,
+        });
+      }
+    }
+
+    return sessions;
+  } catch (err) {
+    return [];
+  }
 }
 
 // ----------------- USERS -----------------
@@ -316,6 +400,55 @@ export function deleteFinancialRecord(id: string): boolean {
   return db.financials.length < initialLength;
 }
 
+export function setFinancials(records: LavajamRecord[]): void {
+  const db = getDatabase();
+  db.financials = records;
+}
+
+// ----------------- INSTRUMENT EXPENSES -----------------
+
+export function getExpenses(): ExpenseRecord[] {
+  const db = getDatabase();
+  if (!db.expenses) {
+    db.expenses = [...INITIAL_EXPENSES];
+  }
+  return db.expenses;
+}
+
+export function setExpenses(expenses: ExpenseRecord[]): void {
+  const db = getDatabase();
+  db.expenses = expenses;
+}
+
+export function addExpense(expense: Omit<ExpenseRecord, 'id'>): ExpenseRecord {
+  const db = getDatabase();
+  if (!db.expenses) db.expenses = [...INITIAL_EXPENSES];
+  const newExpense: ExpenseRecord = {
+    ...expense,
+    id: `exp-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    createdAt: new Date().toISOString(),
+  };
+  db.expenses.unshift(newExpense);
+  return newExpense;
+}
+
+export function updateExpense(id: string, updates: Partial<ExpenseRecord>): ExpenseRecord | null {
+  const db = getDatabase();
+  if (!db.expenses) db.expenses = [...INITIAL_EXPENSES];
+  const index = db.expenses.findIndex(e => e.id === id);
+  if (index === -1) return null;
+  db.expenses[index] = { ...db.expenses[index], ...updates };
+  return db.expenses[index];
+}
+
+export function deleteExpense(id: string): boolean {
+  const db = getDatabase();
+  if (!db.expenses) db.expenses = [...INITIAL_EXPENSES];
+  const initialLength = db.expenses.length;
+  db.expenses = db.expenses.filter(e => e.id !== id);
+  return db.expenses.length < initialLength;
+}
+
 // ----------------- ATTENDANCE -----------------
 
 export function getAttendanceSessions(): AttendanceSession[] {
@@ -335,6 +468,13 @@ export function addAttendanceSession(session: Omit<AttendanceSession, 'id'>): At
     db.attendance.unshift(newSession);
   }
   return newSession;
+}
+
+export function deleteAttendanceSession(id: string): boolean {
+  const db = getDatabase();
+  const initialLength = db.attendance.length;
+  db.attendance = db.attendance.filter(s => s.id !== id);
+  return db.attendance.length < initialLength;
 }
 
 export function getAttendanceMetrics(): AttendanceReportMetrics {

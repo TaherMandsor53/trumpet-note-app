@@ -10,9 +10,10 @@ interface ThemedDatePickerProps {
   className?: string;
   disabled?: boolean;
   maxDate?: string; // YYYY-MM-DD to disable future dates
+  label?: string;
 }
 
-export function ThemedDatePicker({ value, onChange, className, disabled, maxDate }: ThemedDatePickerProps) {
+export function ThemedDatePicker({ value, onChange, className, disabled, maxDate, label }: ThemedDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -145,9 +146,9 @@ export function ThemedDatePicker({ value, onChange, className, disabled, maxDate
           <div className="w-7 h-7 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-[#D97736]">
             <CalendarIcon className="w-4 h-4" />
           </div>
-          <div className="text-left font-sans">
-            <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
-              Selected Attendance Date
+          <div className="text-left font-sans min-w-0">
+            <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider truncate">
+              {label || 'Selected Attendance Date'}
             </div>
             <div className="text-xs font-mono font-bold text-[#E5A93C]">
               {formatDisplay(value) || 'Select Date'}
@@ -155,14 +156,14 @@ export function ThemedDatePicker({ value, onChange, className, disabled, maxDate
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 font-mono">
+        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-[10px] text-amber-300 font-mono shrink-0">
           <span>DD/MM/YYYY</span>
         </div>
       </button>
 
       {/* Popover Calendar Modal */}
       {isOpen && (
-        <div className="absolute z-50 mt-2 left-0 w-80 p-4 rounded-2xl bg-gradient-to-b from-[#2B160E] to-[#1C0D06] border border-amber-500/40 shadow-2xl backdrop-blur-xl text-foreground animate-in fade-in zoom-in-95 duration-150">
+        <div className="absolute z-50 mt-2 left-0 sm:left-auto right-0 sm:right-auto w-[calc(100vw-3.5rem)] max-w-[320px] sm:w-80 p-3 sm:p-4 rounded-2xl bg-gradient-to-b from-[#2B160E] to-[#1C0D06] border border-amber-500/40 shadow-2xl backdrop-blur-xl text-foreground animate-in fade-in zoom-in-95 duration-150">
           {/* Header Month / Year & Navigation */}
           <div className="flex items-center justify-between mb-3 pb-2 border-b border-amber-900/40">
             <button

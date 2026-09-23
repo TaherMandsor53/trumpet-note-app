@@ -12,7 +12,7 @@ export function ThemeWrapper({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove('light', 'dark', 'monochrome');
-    const safeTheme = theme === 'monochrome' ? 'monochrome' : 'dark';
+    const safeTheme = theme === 'light' ? 'light' : 'dark';
     root.classList.add(safeTheme);
   }, [theme]);
 

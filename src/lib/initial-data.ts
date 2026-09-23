@@ -1,4 +1,4 @@
-import { User, Tune, LavajamRecord, AttendanceSession } from '@/types/band';
+import { User, Tune, LavajamRecord, LavajamStatus, AttendanceSession } from '@/types/band';
 import members40 from '@/data/members-40.json';
 
 const now = new Date();
@@ -147,61 +147,127 @@ export const INITIAL_TUNES: Tune[] = [
   },
 ];
 
-export const INITIAL_LAVAJAM: LavajamRecord[] = (members40 as User[]).map((u, i) => ({
-  id: `lav-${String(i + 1).padStart(3, '0')}`,
-  userId: u.id,
-  userName: u.name,
-  section: u.section,
-  year: 2026,
-  month: 'September',
-  amount: 1500,
-  status: i % 4 === 0 ? 'Pending' : 'Paid',
-  paidAt: i % 4 !== 0 ? daysAgo(2 + (i % 10)) : undefined,
-  paymentMethod: i % 2 === 0 ? 'UPI' : 'Cash',
-  transactionRef: i % 2 === 0 ? `UPI/202609/${100000 + i}` : undefined,
-  receiptNo: `REC-2026-${String(i + 1).padStart(3, '0')}`,
-  notes: i % 4 === 0 ? 'Monthly contribution pending verification' : 'Band uniform & maintenance contribution',
-}));
-
-export const INITIAL_ATTENDANCE_SESSIONS: AttendanceSession[] = [
+export const INITIAL_LAVAJAM: LavajamRecord[] = [
+  ...(members40 as User[]).map((u, i) => ({
+    id: `lav-${String(i + 1).padStart(3, '0')}`,
+    date: '24/09/2026',
+    userId: u.id,
+    userName: u.name,
+    fundType: 'Lavajam' as const,
+    section: u.section,
+    year: 2026,
+    month: 'September',
+    amount: 1500,
+    status: (i % 4 === 0 ? 'Pending' : 'Paid') as LavajamStatus,
+    paidAt: i % 4 !== 0 ? daysAgo(2 + (i % 10)) : undefined,
+    paymentMethod: (i % 2 === 0 ? 'UPI' : 'Cash') as 'UPI' | 'Cash',
+    transactionRef: i % 2 === 0 ? `UPI/202609/${100000 + i}` : undefined,
+    receiptNo: `REC-2026-${String(i + 1).padStart(3, '0')}`,
+    notes: i % 4 === 0 ? 'Monthly contribution pending verification' : 'Band uniform & maintenance contribution',
+  })),
   {
-    id: 'att-session-001',
-    date: daysAgo(1),
-    sessionTitle: 'Weekly Parade & National Anthem Drill',
-    sessionType: 'Parade Drill',
-    markedBy: 'MUFADDAL ABIZARBHAI VALINABU',
-    records: (members40 as User[]).map((u, i) => ({
-      userId: u.id,
-      userName: u.name,
-      section: u.section,
-      status: i % 13 === 0 ? 'Absent' : i % 7 === 0 ? 'Late' : 'Present',
-      notes: i % 13 === 0 ? 'Leave granted' : '',
-    })),
+    id: 'lav-hoob-001',
+    date: '24/09/2026',
+    userName: 'Mohammad bhai jiruwala',
+    fundType: 'Hoob' as const,
+    section: 'External / Hoob',
+    year: 2026,
+    month: 'September',
+    amount: 5253,
+    status: 'Paid' as LavajamStatus,
+    paidAt: daysAgo(1),
+    paymentMethod: 'UPI',
+    transactionRef: 'UPI/HOOB/525301',
+    receiptNo: 'REC-2026-041',
+    notes: 'Band sponsorship & Hoob contribution',
   },
   {
-    id: 'att-session-002',
-    date: daysAgo(4),
-    sessionTitle: 'Sectional Harmony Practice - Brass & Woodwinds',
-    sessionType: 'Sectional',
-    markedBy: 'MUFADDAL ABIZARBHAI VALINABU',
-    records: (members40 as User[]).map((u, i) => ({
-      userId: u.id,
-      userName: u.name,
-      section: u.section,
-      status: i % 17 === 0 ? 'Absent' : i % 5 === 0 ? 'Late' : 'Present',
-    })),
+    id: 'lav-hoob-002',
+    date: '24/09/2026',
+    userName: 'Aliasgar happawala',
+    fundType: 'Hoob' as const,
+    section: 'External / Hoob',
+    year: 2026,
+    month: 'September',
+    amount: 6000,
+    status: 'Paid' as LavajamStatus,
+    paidAt: daysAgo(1),
+    paymentMethod: 'UPI',
+    transactionRef: 'UPI/HOOB/600002',
+    receiptNo: 'REC-2026-042',
+    notes: 'Band sponsorship & Hoob contribution',
   },
   {
-    id: 'att-session-003',
-    date: daysAgo(8),
-    sessionTitle: 'Full Scout Band General Rehearsal',
-    sessionType: 'Regular Practice',
-    markedBy: 'MUFADDAL ABIZARBHAI VALINABU',
-    records: (members40 as User[]).map((u, i) => ({
-      userId: u.id,
-      userName: u.name,
-      section: u.section,
-      status: i % 11 === 0 ? 'Late' : 'Present',
-    })),
+    id: 'lav-hoob-003',
+    date: '24/09/2026',
+    userName: 'Hozefa bhai kagdi',
+    fundType: 'Hoob' as const,
+    section: 'External / Hoob',
+    year: 2026,
+    month: 'September',
+    amount: 8000,
+    status: 'Paid' as LavajamStatus,
+    paidAt: daysAgo(2),
+    paymentMethod: 'Cash',
+    receiptNo: 'REC-2026-043',
+    notes: 'Band equipment donation & Hoob contribution',
+  },
+  {
+    id: 'lav-hoob-004',
+    date: '24/09/2026',
+    userName: 'Hatim bhai gulgula',
+    fundType: 'Hoob' as const,
+    section: 'External / Hoob',
+    year: 2026,
+    month: 'September',
+    amount: 10000,
+    status: 'Paid' as LavajamStatus,
+    paidAt: daysAgo(2),
+    paymentMethod: 'Bank Transfer',
+    transactionRef: 'NEFT/HOOB/100004',
+    receiptNo: 'REC-2026-044',
+    notes: 'Band Milad procession sponsorship & Hoob contribution',
   },
 ];
+
+export interface ExpenseRecord {
+  id: string;
+  date: string;
+  expenseDetails: string;
+  amount: number;
+  category?: string;
+  notes?: string;
+  createdAt?: string;
+}
+
+export const INITIAL_EXPENSES: ExpenseRecord[] = [
+  {
+    id: 'exp-001',
+    date: '24/09/2026',
+    expenseDetails: 'Instument purchase',
+    amount: 20500,
+    category: 'Instruments',
+    notes: 'New instrument acquisition for brass section',
+    createdAt: daysAgo(3),
+  },
+  {
+    id: 'exp-002',
+    date: '24/09/2026',
+    expenseDetails: 'Baner express',
+    amount: 2500,
+    category: 'Logistics',
+    notes: 'Express banner printing for procession',
+    createdAt: daysAgo(2),
+  },
+  {
+    id: 'exp-003',
+    date: '24/09/2026',
+    expenseDetails: 'Instument purchase',
+    amount: 1370,
+    category: 'Maintenance',
+    notes: 'Instrument accessories and valves maintenance',
+    createdAt: daysAgo(1),
+  },
+];
+
+export const INITIAL_ATTENDANCE_SESSIONS: AttendanceSession[] = [];

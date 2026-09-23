@@ -52,11 +52,13 @@ export type LavajamStatus = 'Paid' | 'Pending';
 
 export interface LavajamRecord {
   id: string;
-  userId: string;
+  date?: string;
+  userId?: string;
   userName: string;
-  section: InstrumentSection;
-  year: number;
-  month: string;
+  fundType?: 'Lavajam' | 'Hoob';
+  section?: InstrumentSection | string;
+  year?: number;
+  month?: string;
   amount: number;
   status: LavajamStatus;
   paidAt?: string;
@@ -66,11 +68,22 @@ export interface LavajamRecord {
   receiptNo?: string;
 }
 
+export interface ExpenseRecord {
+  id: string;
+  date: string;
+  expenseDetails: string;
+  amount: number;
+  category?: string;
+  notes?: string;
+  createdAt?: string;
+}
+
 export type AttendanceStatus = 'Present' | 'Absent' | 'Late' | 'Excused';
 
 export interface MemberAttendanceEntry {
   userId: string;
   userName: string;
+  itsNumber?: string;
   section: InstrumentSection;
   status: AttendanceStatus;
   notes?: string;

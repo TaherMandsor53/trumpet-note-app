@@ -1,7 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useGetAttendanceMetricsQuery, useGetAttendanceSessionsQuery } from '@/store/api/bandApi';
+import {
+  useGetAttendanceMetricsQuery,
+  useGetAttendanceSessionsQuery,
+  useDeleteAttendanceSessionMutation,
+} from '@/store/api/bandApi';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,14 +19,36 @@ import {
   XCircle,
   Clock,
   Sparkles,
+  Trash2,
 } from 'lucide-react';
+import { useSelector } from 'react-redux';
+import { RootState } from '@/store';
+import { isOverallMajor } from '@/lib/rbac';
+import { useToast } from '@/components/ui/toast';
 
 export function AttendanceReports() {
+  const currentUser = useSelector((state: RootState) => state.auth.user);
+  const activeRole = useSelector((state: RootState) => state.auth.activeRole);
+  const role = currentUser?.role || activeRole;
+  const isAuthorizedMajor = isOverallMajor(role);
+  const { toast } = useToast();
+
   const { data: metrics, isLoading } = useGetAttendanceMetricsQuery();
   const { data: sessionsData } = useGetAttendanceSessionsQuery();
+  const [deleteSession, { isLoading: isDeleting }] = useDeleteAttendanceSessionMutation();
   const [filterPeriod, setFilterPeriod] = useState<'all' | 'weekly' | 'monthly'>('all');
 
   const sessions = sessionsData?.sessions || [];
+
+  const handleDeleteSession = async (id: string, title: string) => {
+    if (!window.confirm(`Are you sure you want to remove the session record "${title}"?`)) return;
+    try {
+      await deleteSession(id).unwrap();
+      toast.success('Session Removed', `Attendance record "${title}" has been deleted.`);
+    } catch (e) {
+      toast.error('Delete Failed', 'Could not delete attendance session.');
+    }
+  };
 
   const handleExport = () => {
     window.open('/api/excel/export?type=attendance', '_blank');
@@ -149,45 +175,63 @@ export function AttendanceReports() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {sessions.map(s => {
-              const present = s.records.filter(r => r.status === 'Present' || r.status === 'Late').length;
-              const rate = s.records.length > 0 ? Math.round((present / s.records.length) * 100) : 0;
+            {sessions.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground text-xs border border-dashed rounded-lg bg-card/40">
+                No past attendance session records found. New practice sessions will appear here once marked.
+              </div>
+            ) : (
+              sessions.map(s => {
+                const present = s.records.filter(r => r.status === 'Present' || r.status === 'Late').length;
+                const rate = s.records.length > 0 ? Math.round((present / s.records.length) * 100) : 0;
 
-              return (
-                <div
-                  key={s.id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg border border-border/70 bg-card hover:bg-muted/30 transition-colors gap-2 text-xs"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-foreground text-sm">{s.sessionTitle}</span>
-                      <Badge variant="outline" className="text-[10px] py-0">
-                        {s.sessionType}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-3 text-muted-foreground mt-1">
-                      <span>Date: {new Date(s.date).toLocaleDateString()}</span>
-                      <span>• Marked by: {s.markedBy}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <div className="font-bold text-sm text-foreground">{rate}%</div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {present} / {s.records.length} Present
+                return (
+                  <div
+                    key={s.id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg border border-border/70 bg-card hover:bg-muted/30 transition-colors gap-2 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-foreground text-sm">{s.sessionTitle}</span>
+                        <Badge variant="outline" className="text-[10px] py-0">
+                          {s.sessionType}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-3 text-muted-foreground mt-1 flex-wrap">
+                        <span>Date: {new Date(s.date).toLocaleDateString()}</span>
+                        <span>• Marked by: {s.markedBy}</span>
                       </div>
                     </div>
-                    <div className="w-16 bg-muted rounded-full h-2 overflow-hidden">
-                      <div
-                        className="bg-emerald-500 h-2 rounded-full"
-                        style={{ width: `${rate}%` }}
-                      />
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-right">
+                        <div className="font-bold text-sm text-foreground">{rate}%</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {present} / {s.records.length} Present
+                        </div>
+                      </div>
+                      <div className="w-16 bg-muted rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-emerald-500 h-2 rounded-full"
+                          style={{ width: `${rate}%` }}
+                        />
+                      </div>
+                      {isAuthorizedMajor && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-8 w-8 p-0 shrink-0 ml-1 rounded-full transition-colors"
+                          title="Remove this attendance session record"
+                          onClick={() => handleDeleteSession(s.id, s.sessionTitle)}
+                          disabled={isDeleting}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </CardContent>
       </Card>

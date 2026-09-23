@@ -38,7 +38,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       havenly:
         'bg-gradient-to-r from-[#D97736] to-[#C26330] hover:from-[#C26330] hover:to-[#A74E20] text-white font-semibold shadow-md shadow-orange-900/30 rounded-full border border-amber-300/30 tracking-wide',
       'havenly-outline':
-        'bg-white/10 hover:bg-white/15 text-foreground border border-white/20 hover:border-amber-400/40 rounded-full backdrop-blur-md transition-all',
+        'bg-amber-700/10 hover:bg-amber-700/20 text-[#2B150A] dark:text-foreground border border-amber-700/35 hover:border-amber-700/60 dark:bg-white/10 dark:hover:bg-white/15 dark:border-white/20 dark:hover:border-amber-400/40 rounded-full backdrop-blur-md transition-all font-semibold',
       pill: 'bg-primary text-primary-foreground hover:opacity-95 rounded-full shadow-sm font-medium',
     };
 

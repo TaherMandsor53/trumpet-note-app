@@ -145,8 +145,16 @@ export function isOverallMajor(role: Role): boolean {
 /**
  * Checks if the role is Treasurer
  */
-export function isTreasurer(role: Role): boolean {
-  return role === 'Treasurer';
+export function isTreasurer(role: Role, user?: { name?: string; rank?: string; role?: string } | null): boolean {
+  if (role === 'Treasurer') return true;
+  if (user) {
+    const rankStr = String(user.rank || '').toLowerCase();
+    const roleStr = String(user.role || '').toLowerCase();
+    const nameStr = String(user.name || '').toUpperCase();
+    if (rankStr.includes('treasurer') || roleStr.includes('treasurer')) return true;
+    if (nameStr.includes('TAHA MAZHARBHAI KUNDAWALA') || nameStr.includes('HUSAIN JUJARBHAI KUNDAWALA')) return true;
+  }
+  return false;
 }
 
 /**
@@ -187,10 +195,18 @@ export function canManageSectionUsers(role: Role, targetSection: InstrumentSecti
 }
 
 /**
+ * Permission: Lavajam Management access
+ * Exclusively restricted to Major (including Overall Major) and Treasurer roles only.
+ */
+export function canAccessLavajam(role: Role, user?: { name?: string; rank?: string; role?: string } | null): boolean {
+  return isOverallMajor(role) || isTreasurer(role, user);
+}
+
+/**
  * Permission: Full CRUD access to Lavajam contribution ledger and stats
  */
-export function canAccessFullFinancials(role: Role): boolean {
-  return isOverallMajor(role) || role === 'Treasurer';
+export function canAccessFullFinancials(role: Role, user?: { name?: string; rank?: string; role?: string } | null): boolean {
+  return canAccessLavajam(role, user);
 }
 
 /**

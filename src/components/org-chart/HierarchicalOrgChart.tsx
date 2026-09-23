@@ -82,9 +82,10 @@ export function HierarchicalOrgChart() {
     });
   };
 
-  // Find leadership
-  const overallMajor = users.find(u => u.role === 'Overall Major');
-  const treasurer = users.find(u => u.role === 'Treasurer');
+  // Find leadership: Executive Command (Overall Major / Majors)
+  const majors = useMemo(() => {
+    return users.filter(u => u.role === 'Overall Major' || u.role === 'Major');
+  }, [users]);
 
   // Instrument Sections Mapping
   const instrumentSections: {
@@ -266,15 +267,15 @@ export function HierarchicalOrgChart() {
         {/* Workday Breadcrumbs Level Indicator */}
         <div className="mt-4 flex items-center gap-2 text-[11px] text-muted-foreground font-mono overflow-x-auto no-scrollbar">
           <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-sans font-bold">
-            Level 1: Executive Command
+            Level 1: Executive Command (Major)
           </span>
           <ChevronRight className="w-3.5 h-3.5 text-border shrink-0" />
           <span className="px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 font-sans font-bold">
-            Level 2: Section Leadership & Finance
+            Level 2: Section Leadership (Section Majors)
           </span>
           <ChevronRight className="w-3.5 h-3.5 text-border shrink-0" />
           <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-sans font-bold">
-            Level 3: Performing Artists / Players
+            Level 3: Performing Artists / Members
           </span>
         </div>
       </div>
@@ -284,18 +285,23 @@ export function HierarchicalOrgChart() {
          ======================================================== */}
       {viewMode === 'tree' ? (
         <div className="w-full flex flex-col items-center">
-          {/* LEVEL 1: OVERALL MAJOR (CEO EQUIVALENT) */}
-          {overallMajor && (
+          {/* LEVEL 1: OVERALL MAJOR / EXECUTIVE COMMAND */}
+          {majors.length > 0 && (
             <div className="flex flex-col items-center">
-              <WorkdayEmployeeCard
-                user={overallMajor}
-                isExecutive
-                directReportsCount={6} // Treasurer + 5 Section Majors
-                highlighted={matchesSearch(overallMajor)}
-                onClick={() => setSelectedUserForDetail(overallMajor)}
-              />
+              <div className="flex flex-wrap items-center justify-center gap-6">
+                {majors.map(major => (
+                  <WorkdayEmployeeCard
+                    key={major.id}
+                    user={major}
+                    isExecutive
+                    directReportsCount={filteredSections.length}
+                    highlighted={matchesSearch(major)}
+                    onClick={() => setSelectedUserForDetail(major)}
+                  />
+                ))}
+              </div>
 
-              {/* Vertical Trunk Line from Overall Major */}
+              {/* Vertical Trunk Line from Major to Level 2 */}
               <div className="w-0.5 h-10 bg-gradient-to-b from-[#D97736] to-border" />
             </div>
           )}
@@ -306,32 +312,17 @@ export function HierarchicalOrgChart() {
             <div className="absolute top-0 left-12 right-12 h-0.5 bg-border" />
           </div>
 
-          {/* LEVEL 2: TREASURER (STAFF / CFO) & 5 SECTION MAJORS */}
+          {/* LEVEL 2: SECTION MAJORS (SECTION LEADS) */}
           <div className="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-y-12 gap-x-6 pt-6">
-            {/* Staff Card: Treasurer */}
-            {treasurer && (selectedSection === 'All' || selectedSection === 'Finance') && (
-              <div className="flex flex-col items-center relative">
-                {/* Vertical hook up to horizontal branch */}
-                <div className="w-0.5 h-6 bg-border -mt-6 mb-2" />
-
-                <WorkdayEmployeeCard
-                  user={treasurer}
-                  isTreasurer
-                  directReportsCount={0}
-                  highlighted={matchesSearch(treasurer)}
-                  onClick={() => setSelectedUserForDetail(treasurer)}
-                />
-                <span className="text-[10px] uppercase font-mono tracking-wider text-muted-foreground mt-2">
-                  Staff Direct Report (Finance)
-                </span>
-              </div>
-            )}
-
-            {/* Department Heads: Section Majors */}
             {filteredSections.map(({ section, majorRole, icon, color, accentBorder }) => {
               const majorUser = users.find(u => u.role === majorRole);
               const players = users.filter(
-                u => u.section === section && u.role === 'Band Member / Player'
+                u =>
+                  u.section === section &&
+                  u.role !== majorRole &&
+                  u.id !== majorUser?.id &&
+                  u.role !== 'Major' &&
+                  u.role !== 'Overall Major'
               );
               const isExpanded = expandedSections[section] !== false;
 
@@ -365,49 +356,63 @@ export function HierarchicalOrgChart() {
 
                       {/* Level 3: Section Players Container */}
                       <div className="w-full space-y-2.5 pt-1 pl-4 border-l-2 border-dashed border-border/80 ml-6">
-                        {players.map(player => (
-                          <div
-                            key={player.id}
-                            onClick={() => setSelectedUserForDetail(player)}
-                            className={cn(
-                              'group relative flex items-center justify-between p-3 rounded-xl border transition-all duration-200 cursor-pointer bg-card/90 dark:bg-[#1E0F08]/90 hover:border-[#D97736]/60 hover:shadow-md',
-                              matchesSearch(player)
-                                ? 'border-[#D97736] ring-1 ring-[#D97736]/30'
-                                : 'border-border/70'
-                            )}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="relative w-8 h-8 rounded-full overflow-hidden border border-border bg-muted flex items-center justify-center text-xs font-bold shrink-0">
-                                {player.avatar ? (
-                                  <img
-                                    src={player.avatar}
-                                    alt={player.name}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <span>{player.name.charAt(0)}</span>
-                                )}
-                                <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-background" />
+                        {players.map(player => {
+                          const isPlayerTreasurer =
+                            player.rank?.toLowerCase().includes('treasurer') ||
+                            player.name.includes('TAHA MAZHARBHAI KUNDAWALA') ||
+                            player.name.includes('HUSAIN JUJARBHAI KUNDAWALA');
+
+                          return (
+                            <div
+                              key={player.id}
+                              onClick={() => setSelectedUserForDetail(player)}
+                              className={cn(
+                                'group relative flex items-center justify-between p-3 rounded-xl border transition-all duration-200 cursor-pointer bg-card/90 dark:bg-[#1E0F08]/90 hover:border-[#D97736]/60 hover:shadow-md',
+                                matchesSearch(player)
+                                  ? 'border-[#D97736] ring-1 ring-[#D97736]/30'
+                                  : 'border-border/70'
+                              )}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="relative w-8 h-8 rounded-full overflow-hidden border border-border bg-muted flex items-center justify-center text-xs font-bold shrink-0">
+                                  {player.avatar ? (
+                                    <img
+                                      src={player.avatar}
+                                      alt={player.name}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <span>{player.name.charAt(0)}</span>
+                                  )}
+                                  <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-background" />
+                                </div>
+
+                                <div>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <h5 className="font-semibold text-xs text-foreground dark:text-amber-100 group-hover:text-[#D97736] transition-colors">
+                                      {player.name}
+                                    </h5>
+                                    {isPlayerTreasurer && (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
+                                        <Coins className="w-2.5 h-2.5" /> Treasurer
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] text-muted-foreground dark:text-amber-200/70 font-mono">
+                                    {player.rank || 'Performing Artist'}
+                                  </p>
+                                </div>
                               </div>
 
-                              <div>
-                                <h5 className="font-semibold text-xs text-foreground dark:text-amber-100 group-hover:text-[#D97736] transition-colors">
-                                  {player.name}
-                                </h5>
-                                <p className="text-[10px] text-muted-foreground dark:text-amber-200/70 font-mono">
-                                  {player.rank || 'Performing Artist'}
-                                </p>
+                              <div className="flex items-center gap-1.5">
+                                <Badge variant="outline" className="text-[10px] py-0 px-2 font-mono">
+                                  {player.section}
+                                </Badge>
+                                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-[#D97736] group-hover:translate-x-0.5 transition-all" />
                               </div>
                             </div>
-
-                            <div className="flex items-center gap-1.5">
-                              <Badge variant="outline" className="text-[10px] py-0 px-2 font-mono">
-                                {player.section}
-                              </Badge>
-                              <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-[#D97736] group-hover:translate-x-0.5 transition-all" />
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -418,7 +423,7 @@ export function HierarchicalOrgChart() {
                       onClick={() => toggleSection(section)}
                       className="mt-2 text-[11px] font-semibold text-[#D97736] hover:underline flex items-center gap-1"
                     >
-                      <span>Show {players.length} assigned players</span>
+                      <span>Show {players.length} assigned members</span>
                       <ChevronDown className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -431,66 +436,124 @@ export function HierarchicalOrgChart() {
         /* ========================================================
             COMPACT DEPARTMENT GRID MODE
            ======================================================== */
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredSections.map(({ section, majorRole, icon }) => {
-            const majorUser = users.find(u => u.role === majorRole);
-            const players = users.filter(
-              u => u.section === section && u.role === 'Band Member / Player'
-            );
-
-            return (
-              <Card key={section} className="border border-border/80 flex flex-col">
-                <div className="p-4 border-b bg-muted/40 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-xl bg-background border shadow-xs">{icon}</div>
-                    <div>
-                      <h4 className="font-bold text-base text-foreground">{section} Section</h4>
-                      <p className="text-xs text-muted-foreground">{players.length} Active Players</p>
-                    </div>
+        <div className="space-y-6">
+          {/* Executive Command Card in Grid View */}
+          {majors.length > 0 && (selectedSection === 'All' || selectedSection === 'Command') && (
+            <Card className="border border-amber-500/40 bg-amber-500/5">
+              <div className="p-4 border-b border-border/80 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-500">
+                    <Crown className="w-5 h-5" />
                   </div>
-                  <Badge variant="outline" className="text-xs">
-                    {section}
-                  </Badge>
+                  <div>
+                    <h4 className="font-bold text-base text-foreground">Executive Command</h4>
+                    <p className="text-xs text-muted-foreground">{majors.length} Band Major{majors.length > 1 ? 's' : ''}</p>
+                  </div>
                 </div>
-
-                {majorUser && (
-                  <div className="p-4 bg-background/50 border-b border-border/50 flex items-center justify-between">
+                <Badge variant="gold" className="text-xs">
+                  Command
+                </Badge>
+              </div>
+              <div className="p-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {majors.map(m => (
+                  <div
+                    key={m.id}
+                    onClick={() => setSelectedUserForDetail(m)}
+                    className="flex items-center justify-between p-3 rounded-xl border border-amber-500/30 bg-background/80 hover:bg-muted/40 cursor-pointer text-xs transition-colors"
+                  >
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[#D97736]">
-                        Section Major
-                      </span>
-                      <h5 className="font-bold text-sm text-foreground">{majorUser.name}</h5>
-                      <p className="text-xs text-muted-foreground">{majorUser.rank}</p>
+                      <span className="font-bold text-foreground">{m.name}</span>
+                      <p className="text-[10px] text-muted-foreground font-mono">{m.rank || 'Major'}</p>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSelectedUserForDetail(majorUser)}
-                      className="text-xs h-7"
-                    >
+                    <Button variant="ghost" size="sm" className="text-xs h-7">
                       Profile
                     </Button>
                   </div>
-                )}
+                ))}
+              </div>
+            </Card>
+          )}
 
-                <div className="p-4 space-y-2 flex-1">
-                  {players.map(p => (
-                    <div
-                      key={p.id}
-                      onClick={() => setSelectedUserForDetail(p)}
-                      className="flex items-center justify-between p-2 rounded-lg border border-border/50 hover:bg-muted/40 cursor-pointer text-xs transition-colors"
-                    >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredSections.map(({ section, majorRole, icon }) => {
+              const majorUser = users.find(u => u.role === majorRole);
+              const players = users.filter(
+                u =>
+                  u.section === section &&
+                  u.role !== majorRole &&
+                  u.id !== majorUser?.id &&
+                  u.role !== 'Major' &&
+                  u.role !== 'Overall Major'
+              );
+
+              return (
+                <Card key={section} className="border border-border/80 flex flex-col">
+                  <div className="p-4 border-b bg-muted/40 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-xl bg-background border shadow-xs">{icon}</div>
                       <div>
-                        <span className="font-medium text-foreground">{p.name}</span>
-                        <p className="text-[10px] text-muted-foreground">{p.rank || 'Player'}</p>
+                        <h4 className="font-bold text-base text-foreground">{section} Section</h4>
+                        <p className="text-xs text-muted-foreground">{players.length} Assigned Members</p>
                       </div>
-                      <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
                     </div>
-                  ))}
-                </div>
-              </Card>
-            );
-          })}
+                    <Badge variant="outline" className="text-xs">
+                      {section}
+                    </Badge>
+                  </div>
+
+                  {majorUser && (
+                    <div className="p-4 bg-background/50 border-b border-border/50 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-[#D97736]">
+                          Section Major
+                        </span>
+                        <h5 className="font-bold text-sm text-foreground">{majorUser.name}</h5>
+                        <p className="text-xs text-muted-foreground">{majorUser.rank}</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedUserForDetail(majorUser)}
+                        className="text-xs h-7"
+                      >
+                        Profile
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="p-4 space-y-2 flex-1">
+                    {players.map(p => {
+                      const isPlayerTreasurer =
+                        p.rank?.toLowerCase().includes('treasurer') ||
+                        p.name.includes('TAHA MAZHARBHAI KUNDAWALA') ||
+                        p.name.includes('HUSAIN JUJARBHAI KUNDAWALA');
+
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => setSelectedUserForDetail(p)}
+                          className="flex items-center justify-between p-2 rounded-lg border border-border/50 hover:bg-muted/40 cursor-pointer text-xs transition-colors"
+                        >
+                          <div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-medium text-foreground">{p.name}</span>
+                              {isPlayerTreasurer && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                  <Coins className="w-2.5 h-2.5" /> Treasurer
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">{p.rank || 'Member'}</p>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -668,7 +731,7 @@ function WorkdayEmployeeCard({
                     : 'border-[#D97736]/40 bg-[#D97736]/15 text-[#D97736]'
                 )}
               >
-                {isExecutive ? 'Commander' : isTreasurer ? 'Finance CFO' : 'Section Lead'}
+                {isExecutive ? 'Band Major' : isTreasurer ? 'Treasurer' : 'Section Lead'}
               </span>
 
               {directReportsCount > 0 && (
@@ -695,7 +758,7 @@ function WorkdayEmployeeCard({
             </div>
 
             <span className="text-[10px] font-mono text-muted-foreground dark:text-amber-200/60">
-              {user.role.replace('Major', '')}
+              {user.role}
             </span>
           </div>
         </div>

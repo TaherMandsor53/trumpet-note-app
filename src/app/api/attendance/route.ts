@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAttendanceSessions, addAttendanceSession } from '@/lib/db';
+import { getAttendanceSessions, addAttendanceSession, deleteAttendanceSession, getUserById } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { canMarkAttendance, canViewAllAttendance } from '@/lib/rbac';
 import { syncAttendanceToSheet } from '@/lib/google-sheets';
@@ -59,12 +59,24 @@ export async function POST(req: NextRequest) {
     }
 
     const sessionDate = date || new Date().toISOString().split('T')[0];
+    const enrichedRecords = records.map((r: any) => {
+      const userObj = getUserById(r.userId);
+      return {
+        userId: r.userId,
+        userName: r.userName || userObj?.name || '',
+        itsNumber: r.itsNumber || userObj?.itsNumber || String(r.userId || '').replace(/^sheet-/, ''),
+        section: r.section || userObj?.section || 'Trumpet',
+        status: r.status,
+        notes: r.notes || '',
+      };
+    });
+
     const newSession = addAttendanceSession({
       date: sessionDate,
       sessionTitle: sessionTitle || `Practice Attendance Session (${sessionDate})`,
       sessionType: sessionType || 'Regular Practice',
       markedBy: user.name,
-      records,
+      records: enrichedRecords,
     });
 
     // Sync directly to Google Sheet "Attendance Details" sheet
@@ -81,5 +93,31 @@ export async function POST(req: NextRequest) {
     );
   } catch (error) {
     return NextResponse.json({ error: 'Failed to record attendance session' }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const user = await getCurrentUser(req);
+    if (!user || !canMarkAttendance(user.role)) {
+      return NextResponse.json(
+        { error: 'Permission Denied: Only Overall Major can delete attendance sessions.' },
+        { status: 403 }
+      );
+    }
+
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+    if (!id) {
+      return NextResponse.json({ error: 'Session ID is required.' }, { status: 400 });
+    }
+
+    const success = deleteAttendanceSession(id);
+    return NextResponse.json({
+      success,
+      message: success ? 'Attendance session deleted successfully.' : 'Session not found.',
+    });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to delete attendance session' }, { status: 500 });
   }
 }

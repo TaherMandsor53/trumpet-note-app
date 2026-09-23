@@ -13,7 +13,7 @@ import { Role } from '@/types/band';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SoundwaveAnimation } from '@/components/ui/musical-icons';
-import { Moon, Contrast, LogOut } from 'lucide-react';
+import { Moon, Sun, LogOut } from 'lucide-react';
 
 export function Navbar({ activeTab, onTabChange }: { activeTab: string; onTabChange: (tab: string) => void }) {
   const router = useRouter();
@@ -24,7 +24,7 @@ export function Navbar({ activeTab, onTabChange }: { activeTab: string; onTabCha
   const activeRole = useSelector((state: RootState) => state.auth.activeRole);
 
   const cycleTheme = () => {
-    if (theme === 'dark') dispatch(setTheme('monochrome'));
+    if (theme === 'dark') dispatch(setTheme('light'));
     else dispatch(setTheme('dark'));
   };
 
@@ -105,18 +105,18 @@ export function Navbar({ activeTab, onTabChange }: { activeTab: string; onTabCha
           {/* Divider */}
           <div className="h-6 w-px bg-border/60 mx-0.5 hidden sm:block" />
 
-          {/* Theme Toggle Button (Dark <-> Monochrome only) */}
+          {/* Theme Toggle Button (Dark <-> Light) */}
           <Button
             variant="outline"
             size="sm"
             onClick={cycleTheme}
             className="flex items-center gap-1.5 text-xs font-medium px-2.5 h-8 border-border/80 hover:bg-accent/40"
-            title="Toggle theme (Dark or Monochrome)"
+            title="Toggle theme (Dark or Light)"
           >
-            {theme === 'monochrome' ? (
+            {theme === 'light' ? (
               <>
-                <Contrast className="w-3.5 h-3.5 text-foreground" />
-                <span className="hidden md:inline font-mono">Monochrome</span>
+                <Sun className="w-3.5 h-3.5 text-amber-500" />
+                <span className="hidden md:inline font-sans">Light</span>
               </>
             ) : (
               <>
@@ -140,7 +140,7 @@ export function Navbar({ activeTab, onTabChange }: { activeTab: string; onTabCha
               dispatch(logout());
               window.location.href = '/';
             }}
-            className="flex items-center gap-1.5 text-xs font-medium px-2.5 h-8 border-red-500/30 text-red-300 hover:text-red-200 hover:bg-red-500/10 transition-colors"
+            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 h-8 border-red-500/30 text-red-700 dark:text-red-300 hover:text-red-800 dark:hover:text-red-200 hover:bg-red-500/10 transition-colors"
             title="Sign out of Taheri Scout Band portal"
           >
             <LogOut className="w-3.5 h-3.5 text-red-400" />

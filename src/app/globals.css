@@ -56,27 +56,27 @@
     --ring: 24 75% 53%;
   }
 
-  /* Monochrome Theme: High-Contrast Noir */
-  .monochrome {
-    --background: 0 0% 0%;
-    --foreground: 0 0% 100%;
-    --card: 0 0% 7%;
-    --card-foreground: 0 0% 100%;
-    --popover: 0 0% 7%;
-    --popover-foreground: 0 0% 100%;
-    --primary: 0 0% 100%;
-    --primary-foreground: 0 0% 0%;
-    --secondary: 0 0% 15%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 0 0% 12%;
-    --muted-foreground: 0 0% 70%;
-    --accent: 0 0% 20%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 0% 100%;
-    --destructive-foreground: 0 0% 0%;
-    --border: 0 0% 25%;
-    --input: 0 0% 25%;
-    --ring: 0 0% 100%;
+  /* Light Theme: Royal Light Golden, Warm Polished Brass & Rich Roasted Espresso */
+  .light {
+    --background: 43 55% 94%; /* #FAF3E1 - Warm light golden parchment */
+    --foreground: 24 55% 12%; /* #2E1609 - Deep roasted espresso/bronze text */
+    --card: 43 45% 90%; /* #F5E8CB - Light golden card surface, NO white */
+    --card-foreground: 24 55% 12%; /* #2E1609 - Deep dark roasted text */
+    --popover: 43 45% 90%; /* #F5E8CB - Light golden dialog/popover */
+    --popover-foreground: 24 55% 12%; /* #2E1609 */
+    --primary: 24 85% 42%; /* #C65313 - Warm terracotta brass */
+    --primary-foreground: 43 60% 96%; /* #FDF9EF - Light golden button text */
+    --secondary: 40 40% 84%; /* #E9DAB6 - Light golden secondary */
+    --secondary-foreground: 24 50% 16%; /* #3D1D0C */
+    --muted: 40 38% 86%; /* #EDE0C0 - Soft golden muted surface */
+    --muted-foreground: 24 35% 32%; /* #6D3A1D - Rich warm bistre (>7:1 contrast) */
+    --accent: 42 48% 82%; /* #E5D2A3 - Warm golden brass accent */
+    --accent-foreground: 24 75% 24%; /* #6C2B0B - Deep amber bronze */
+    --destructive: 0 72% 48%;
+    --destructive-foreground: 43 60% 96%;
+    --border: 40 38% 74%; /* #D1BA8E - Refined golden brass border */
+    --input: 40 38% 74%; /* #D1BA8E - Refined golden brass border */
+    --ring: 24 85% 42%;
   }
 }
 
@@ -108,10 +108,26 @@
   background-size: 28px 28px, 100% 36px;
 }
 
-.monochrome .bg-musical-pattern {
-  background-image: radial-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
-  background-size: 24px 24px, 100% 32px;
+.light .bg-musical-pattern {
+  background-image: radial-gradient(rgba(180, 83, 9, 0.16) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(180, 83, 9, 0.05) 1px, transparent 1px);
+  background-size: 28px 28px, 100% 36px;
+}
+
+.light .bg-havenly-hero {
+  background: radial-gradient(ellipse 80% 60% at 50% -10%, #F5E5C0 0%, #EBD49F 55%, #DEC07E 100%);
+  border-bottom: 1px solid rgba(160, 80, 10, 0.25);
+}
+
+.light .glass-panel-warm {
+  background: rgba(245, 232, 203, 0.94);
+  border: 1px solid rgba(190, 145, 75, 0.45);
+  box-shadow: 0 4px 20px -2px rgba(100, 45, 10, 0.08);
+}
+
+.light .glass-pill-warm {
+  background: rgba(238, 222, 185, 0.90);
+  border: 1px solid rgba(185, 140, 70, 0.50);
 }
 
 /* Warm Hero Espresso Gradient Backdrop */

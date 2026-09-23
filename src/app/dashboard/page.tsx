@@ -138,7 +138,7 @@ export default function DashboardPage() {
         tag: `✦ BAND MUSICIAN PORTAL • KHIDMAT OF AQA MOLA (TUS)`,
         heading: (
           <>
-            Welcome, <span className="italic text-[#E5A93C]">{currentUser?.name || 'Scout Musician'}</span>
+            Welcome, <span className="italic text-[#92400E] dark:text-[#E5A93C]">{currentUser?.name || 'Scout Musician'}</span>
           </>
         ),
         subtitle: `Access your section's assigned Madeh notes, practice brass fingering transpositions for upcoming Milad Mubarak, and review your hazri attendance and Lavajam contribution records.`,
@@ -189,7 +189,7 @@ export default function DashboardPage() {
         heading: (
           <>
             Band Lavajam Treasury &amp; <br />
-            <span className="italic text-[#E5A93C]">Financial Management</span>
+            <span className="italic text-[#92400E] dark:text-[#E5A93C]">Financial Management</span>
           </>
         ),
         subtitle: 'Comprehensive ledger for band member Lavajam dues collection, digital receipt verification, UPI and cash reconciliations, and Milad celebration expense accounting.',
@@ -241,7 +241,7 @@ export default function DashboardPage() {
         heading: (
           <>
             {effectiveRole} <br />
-            <span className="italic text-[#E5A93C]">{sec} Madeh Workspace</span>
+            <span className="italic text-[#92400E] dark:text-[#E5A93C]">{sec} Madeh Workspace</span>
           </>
         ),
         subtitle: `Oversee ${sec} section musicians, compose and assign Madeh scores for Milad Mubarak processions, synchronize sheet notes from Google Drive, and record rehearsal hazri.`,
@@ -301,7 +301,7 @@ export default function DashboardPage() {
       heading: (
         <>
           Composing &amp; Archiving Madeh Notes for <br />
-          <span className="italic text-[#E5A93C]">Mola's Milad Celebrations</span>
+          <span className="italic text-[#92400E] dark:text-[#E5A93C]">Mola's Milad Celebrations</span>
         </>
       ),
       subtitle: 'Official religious band portal to compose brass Madeh notes, store and archive procession scores, record member attendance (Hazri), and manage transparent Lavajam financials in khidmat of Aqa Mola (TUS).',
@@ -377,25 +377,25 @@ export default function DashboardPage() {
       {/* ========================================================
           WARM EDITORIAL HERO SECTION (Role-Tailored)
          ======================================================== */}
-      <section className="relative overflow-hidden bg-havenly-hero text-white pt-10 pb-14 px-4 sm:px-6 md:px-10 border-b border-amber-900/40">
+      <section className="relative overflow-hidden bg-havenly-hero text-foreground dark:text-white pt-10 pb-14 px-4 sm:px-6 md:px-10 border-b border-amber-900/40">
         <FloatingNoteParticles />
 
         <div className="max-w-7xl mx-auto relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
           {/* Left Column: Headline, Subtitle, CTA buttons & Feature Badges */}
           <div className="lg:col-span-7 space-y-5">
             {/* Pill Tag with glowing amber indicator */}
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/20 bg-white/10 backdrop-blur-md text-amber-200 text-xs font-semibold tracking-wider uppercase">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-amber-800/30 dark:border-white/20 bg-amber-600/15 dark:bg-white/10 backdrop-blur-md text-[#5C2B0B] dark:text-amber-200 text-xs font-bold tracking-wider uppercase">
               <span className="w-2 h-2 rounded-full bg-[#D97736]" />
               {hero.tag}
             </div>
 
             {/* Editorial Serif Heading */}
-            <h1 className="text-3xl sm:text-4xl md:text-5xl font-serif font-black tracking-tight leading-[1.15] text-amber-50">
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-serif font-black tracking-tight leading-[1.15] text-[#241208] dark:text-amber-50">
               {hero.heading}
             </h1>
 
             {/* Subtext */}
-            <p className="text-xs sm:text-sm text-amber-100/80 max-w-xl leading-relaxed">
+            <p className="text-xs sm:text-sm text-[#3E1F10] dark:text-amber-100/80 max-w-xl leading-relaxed font-medium">
               {hero.subtitle}
             </p>
 
@@ -409,11 +409,11 @@ export default function DashboardPage() {
               {hero.pills.map((pill, idx) => {
                 const PillIcon = pill.icon;
                 return (
-                  <div key={idx} className="p-3 rounded-2xl glass-pill-warm border border-white/15 backdrop-blur-md">
-                    <div className="flex items-center gap-2 text-xs font-bold text-amber-200">
-                      <PillIcon className="w-3.5 h-3.5 text-[#D97736]" /> {pill.label}
+                  <div key={idx} className="p-3 rounded-2xl glass-pill-warm border border-amber-700/25 dark:border-white/15 backdrop-blur-md">
+                    <div className="flex items-center gap-2 text-xs font-bold text-[#78350F] dark:text-amber-200">
+                      <PillIcon className="w-3.5 h-3.5 text-[#C25B1D] dark:text-[#D97736]" /> {pill.label}
                     </div>
-                    <p className="text-[11px] text-amber-100/70 mt-1">{pill.desc}</p>
+                    <p className="text-[11px] text-[#4A2612] dark:text-amber-100/70 mt-1 font-medium">{pill.desc}</p>
                   </div>
                 );
               })}
@@ -422,15 +422,15 @@ export default function DashboardPage() {
 
           {/* Right Column: Floating Musical Madeh Cadence Visualizer Card */}
           <div className="lg:col-span-5 flex justify-center lg:justify-end">
-            <div className="w-full max-w-sm rounded-3xl p-5 bg-white/[0.08] backdrop-blur-2xl border border-white/20 shadow-2xl shadow-black/40 relative overflow-hidden">
+            <div className="w-full max-w-sm rounded-3xl p-5 bg-amber-500/15 dark:bg-white/[0.08] backdrop-blur-2xl border border-amber-600/35 dark:border-white/20 shadow-xl shadow-amber-950/10 dark:shadow-black/40 relative overflow-hidden">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                  <span className="text-[11px] font-bold tracking-wide uppercase text-amber-200">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 animate-pulse" />
+                  <span className="text-[11px] font-bold tracking-wide uppercase text-[#78350F] dark:text-amber-200">
                     Madeh Cadence &amp; Harmony
                   </span>
                 </div>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-600/20 text-emerald-900 dark:text-emerald-300 border border-emerald-600/35 dark:border-emerald-500/30 font-bold">
                   Milad Repertoire
                 </span>
               </div>
@@ -439,19 +439,19 @@ export default function DashboardPage() {
               <MadehStaveVisualizer className="mb-3" />
 
               {/* Musical Chips */}
-              <p className="text-[11px] font-semibold text-amber-100 mb-1.5">{hero.focusTitle}</p>
+              <p className="text-[11px] font-bold text-[#451A03] dark:text-amber-100 mb-1.5">{hero.focusTitle}</p>
               <div className="flex flex-wrap gap-1 mb-3">
                 {hero.focusChips.map(chip => (
                   <span
                     key={chip}
-                    className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 text-amber-100 transition-colors cursor-pointer"
+                    className="text-[10px] px-2 py-0.5 rounded-full bg-amber-600/15 hover:bg-amber-600/25 dark:bg-white/10 dark:hover:bg-white/20 border border-amber-600/35 dark:border-white/15 text-[#3E1F10] dark:text-amber-100 font-semibold transition-colors cursor-pointer"
                   >
                     {chip}
                   </span>
                 ))}
               </div>
 
-              <div className="pt-2 border-t border-white/10 text-[10px] italic text-amber-200/80 leading-snug">
+              <div className="pt-2 border-t border-amber-900/15 dark:border-white/10 text-[10px] italic text-[#5C2D13] dark:text-amber-200/80 leading-snug">
                 &ldquo;Devotedly playing sacred Madeh melodies in the barakat of Aqa Mola (TUS) for Milad Mubarak celebrations and religious processions.&rdquo;
               </div>
             </div>

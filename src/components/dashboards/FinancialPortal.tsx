@@ -6,69 +6,102 @@ import {
   useCreateFinancialRecordMutation,
   useUpdateFinancialRecordMutation,
   useDeleteFinancialRecordMutation,
+  useGetExpensesQuery,
+  useCreateExpenseMutation,
+  useUpdateExpenseMutation,
+  useDeleteExpenseMutation,
   useGetUsersQuery,
 } from '@/store/api/bandApi';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { ThemedDatePicker } from '@/components/ui/ThemedDatePicker';
+import { LavajamCharts } from '@/components/financial/LavajamCharts';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { LavajamRecord, ExpenseRecord } from '@/types/band';
 import {
   Coins,
-  TrendingUp,
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  Download,
+  TrendingDown,
   Plus,
   Search,
   Receipt,
   Trash2,
   Edit2,
   FileSpreadsheet,
+  ArrowUpDown,
+  CreditCard,
+  Building,
 } from 'lucide-react';
 
 export function FinancialPortal() {
-  const { data, isLoading, refetch } = useGetFinancialsQuery();
+  // Queries & Mutations
+  const { data: finData, isLoading: isFinLoading, refetch: refetchFin } = useGetFinancialsQuery();
+  const { data: expData, isLoading: isExpLoading, refetch: refetchExp } = useGetExpensesQuery();
   const { data: usersData } = useGetUsersQuery();
-  const [createRecord, { isLoading: isCreating }] = useCreateFinancialRecordMutation();
-  const [updateRecord] = useUpdateFinancialRecordMutation();
-  const [deleteRecord] = useDeleteFinancialRecordMutation();
 
+  const [createFinancialRecord, { isLoading: isCreatingFin }] = useCreateFinancialRecordMutation();
+  const [updateFinancialRecord, { isLoading: isUpdatingFin }] = useUpdateFinancialRecordMutation();
+  const [deleteFinancialRecord] = useDeleteFinancialRecordMutation();
+
+  const [createExpense, { isLoading: isCreatingExp }] = useCreateExpenseMutation();
+  const [updateExpense, { isLoading: isUpdatingExp }] = useUpdateExpenseMutation();
+  const [deleteExpense] = useDeleteExpenseMutation();
+
+  // Active Tab: 'contributions' or 'expenses'
+  const [activeTab, setActiveTab] = useState<'contributions' | 'expenses'>('contributions');
+
+  // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Pending'>('All');
   const [sectionFilter, setSectionFilter] = useState('All');
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  // Form state
+  // Modal States
+  const [isAddContributionOpen, setIsAddContributionOpen] = useState(false);
+  const [isEditContributionOpen, setIsEditContributionOpen] = useState(false);
+  const [editingContribution, setEditingContribution] = useState<LavajamRecord | null>(null);
+
+  const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
+  const [isEditExpenseOpen, setIsEditExpenseOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<ExpenseRecord | null>(null);
+
+  // Contribution Form State
+  const [fundType, setFundType] = useState<'Lavajam' | 'Hoob'>('Lavajam');
   const [formUserId, setFormUserId] = useState('');
-  const [formMonth, setFormMonth] = useState('September');
-  const [formYear, setFormYear] = useState(2026);
-  const [formAmount, setFormAmount] = useState(1500);
+  const [formHoobName, setFormHoobName] = useState('');
+  const [formAmount, setFormAmount] = useState(1000);
+  const [formDate, setFormDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  });
   const [formStatus, setFormStatus] = useState<'Paid' | 'Pending'>('Paid');
   const [formMethod, setFormMethod] = useState<'UPI' | 'Cash' | 'Bank Transfer' | 'Cheque'>('UPI');
   const [formRef, setFormRef] = useState('');
   const [formNotes, setFormNotes] = useState('');
 
-  const records = data?.records || [];
-  const metrics = data?.metrics || {
-    totalCollected: 0,
-    totalPending: 0,
-    paidCount: 0,
-    pendingCount: 0,
-    collectionRate: 0,
-    totalRecords: 0,
-  };
+  // Expense Form State
+  const [expName, setExpName] = useState('');
+  const [expAmount, setExpAmount] = useState<number | ''>('');
+  const [expDate, setExpDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  });
+  const [expCategory, setExpCategory] = useState('Instruments');
+  const [expNotes, setExpNotes] = useState('');
 
+  const records = finData?.records || [];
+  const expenses = expData?.expenses || [];
   const users = usersData?.users || [];
 
-  const filteredRecords = records.filter(r => {
+  // Filtered records for Contributions
+  const filteredContributions = records.filter(r => {
     const matchesSearch =
       r.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.receiptNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.transactionRef?.toLowerCase().includes(searchTerm.toLowerCase());
+      (r.receiptNo && r.receiptNo.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (r.fundType && r.fundType.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (r.section && r.section.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
     const matchesSection = sectionFilter === 'All' || r.section === sectionFilter;
@@ -76,139 +109,324 @@ export function FinancialPortal() {
     return matchesSearch && matchesStatus && matchesSection;
   });
 
-  const handleCreateRecord = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formUserId) return;
+  // Filtered records for Expenses
+  const filteredExpenses = expenses.filter(e => {
+    return (
+      e.expenseDetails.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (e.date && e.date.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (e.category && e.category.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+  });
 
-    try {
-      await createRecord({
-        userId: formUserId,
-        year: Number(formYear),
-        month: formMonth,
-        amount: Number(formAmount),
-        status: formStatus,
-        paymentMethod: formStatus === 'Paid' ? formMethod : undefined,
-        transactionRef: formRef || undefined,
-        notes: formNotes || undefined,
-      }).unwrap();
-
-      setIsAddModalOpen(false);
-      resetForm();
-      refetch();
-    } catch (err) {
-      console.error('Failed to create financial record', err);
-    }
-  };
-
-  const handleToggleStatus = async (recordId: string, currentStatus: 'Paid' | 'Pending') => {
-    const nextStatus = currentStatus === 'Paid' ? 'Pending' : 'Paid';
-    try {
-      await updateRecord({
-        id: recordId,
-        status: nextStatus,
-        paymentMethod: nextStatus === 'Paid' ? 'Cash' : undefined,
-      }).unwrap();
-    } catch (err) {
-      console.error('Failed to update status', err);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this contribution record?')) {
-      await deleteRecord(id);
-    }
-  };
-
-  const resetForm = () => {
+  // Reset Contribution Form
+  const resetContributionForm = () => {
+    setFundType('Lavajam');
     setFormUserId('');
-    setFormAmount(1500);
+    setFormHoobName('');
+    setFormAmount(1000);
+    const now = new Date();
+    setFormDate(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`);
     setFormStatus('Paid');
+    setFormMethod('UPI');
     setFormRef('');
     setFormNotes('');
+  };
+
+  // Reset Expense Form
+  const resetExpenseForm = () => {
+    setExpName('');
+    setExpAmount('');
+    const now = new Date();
+    setExpDate(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`);
+    setExpCategory('Instruments');
+    setExpNotes('');
+  };
+
+  // Open Edit Contribution
+  const handleOpenEditContribution = (rec: LavajamRecord) => {
+    setEditingContribution(rec);
+    setFundType(rec.fundType === 'Hoob' ? 'Hoob' : 'Lavajam');
+    setFormUserId(rec.userId || '');
+    setFormHoobName(rec.fundType === 'Hoob' ? rec.userName : '');
+    setFormAmount(rec.amount);
+
+    // Parse date if in DD/MM/YYYY
+    let parsedDate = rec.date || '';
+    if (parsedDate && parsedDate.includes('/')) {
+      const parts = parsedDate.split('/');
+      if (parts.length === 3) {
+        parsedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+    }
+    setFormDate(parsedDate || new Date().toISOString().split('T')[0]);
+    setFormStatus(rec.status);
+    setFormMethod((rec.paymentMethod as any) || 'UPI');
+    setFormRef(rec.transactionRef || '');
+    setFormNotes(rec.notes || '');
+    setIsEditContributionOpen(true);
+  };
+
+  // Open Edit Expense
+  const handleOpenEditExpense = (exp: ExpenseRecord) => {
+    setEditingExpense(exp);
+    setExpName(exp.expenseDetails);
+    setExpAmount(exp.amount);
+
+    let parsedDate = exp.date || '';
+    if (parsedDate && parsedDate.includes('/')) {
+      const parts = parsedDate.split('/');
+      if (parts.length === 3) {
+        parsedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+    }
+    setExpDate(parsedDate || new Date().toISOString().split('T')[0]);
+    setExpCategory(exp.category || 'Instruments');
+    setExpNotes(exp.notes || '');
+    setIsEditExpenseOpen(true);
+  };
+
+  // Handle Save Contribution (POST)
+  const handleSaveContribution = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const memberObj = fundType === 'Lavajam' ? users.find(u => u.id === formUserId) : null;
+      const contributorName = fundType === 'Lavajam' ? (memberObj?.name || '') : formHoobName.trim();
+
+      if (!contributorName) {
+        alert(fundType === 'Lavajam' ? 'Please select a band member.' : 'Please enter contributor name.');
+        return;
+      }
+
+      await createFinancialRecord({
+        fundType,
+        userId: fundType === 'Lavajam' ? formUserId : undefined,
+        userName: contributorName,
+        date: formDate,
+        amount: Number(formAmount) || 0,
+        status: 'Paid',
+      }).unwrap();
+
+      setIsAddContributionOpen(false);
+      resetContributionForm();
+      refetchFin();
+    } catch (err) {
+      console.error('Failed to create contribution record', err);
+      alert('Failed to save contribution. Please try again.');
+    }
+  };
+
+  // Handle Update Contribution (PUT)
+  const handleUpdateContribution = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingContribution) return;
+
+    try {
+      const memberObj = fundType === 'Lavajam' ? users.find(u => u.id === formUserId) : null;
+      const contributorName = fundType === 'Lavajam' ? (memberObj?.name || editingContribution.userName) : formHoobName.trim();
+
+      await updateFinancialRecord({
+        id: editingContribution.id,
+        originalName: editingContribution.userName,
+        fundType,
+        userId: fundType === 'Lavajam' ? formUserId : undefined,
+        userName: contributorName,
+        section: fundType === 'Lavajam' && memberObj ? memberObj.section : (editingContribution.section || 'External / Hoob'),
+        date: formDate,
+        amount: Number(formAmount) || 0,
+        status: editingContribution.status || 'Paid',
+        paymentMethod: editingContribution.paymentMethod,
+        transactionRef: editingContribution.transactionRef,
+        notes: editingContribution.notes,
+      } as any).unwrap();
+
+      setIsEditContributionOpen(false);
+      setEditingContribution(null);
+      resetContributionForm();
+      refetchFin();
+    } catch (err) {
+      console.error('Failed to update contribution record', err);
+      alert('Failed to update contribution. Please try again.');
+    }
+  };
+
+  // Handle Delete Contribution (DELETE)
+  const handleDeleteContribution = async (rec: LavajamRecord) => {
+    if (confirm(`Are you sure you want to delete the contribution for ${rec.userName}? This will remove it from the ledger, Excel, and Google Sheet.`)) {
+      try {
+        await deleteFinancialRecord(rec.id).unwrap();
+        refetchFin();
+      } catch (err) {
+        console.error('Failed to delete contribution record', err);
+      }
+    }
+  };
+
+  // Handle Save Expense (POST)
+  const handleSaveExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!expName.trim()) {
+      alert('Please enter expense name / details.');
+      return;
+    }
+    try {
+      await createExpense({
+        date: expDate,
+        expenseDetails: expName.trim(),
+        amount: Number(expAmount) || 0,
+        category: expCategory,
+        notes: expNotes || undefined,
+      }).unwrap();
+
+      setIsAddExpenseOpen(false);
+      resetExpenseForm();
+      refetchExp();
+    } catch (err) {
+      console.error('Failed to record expense', err);
+      alert('Failed to record expense. Please try again.');
+    }
+  };
+
+  // Handle Update Expense (PUT)
+  const handleUpdateExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingExpense || !expName.trim()) return;
+
+    try {
+      await updateExpense({
+        id: editingExpense.id,
+        originalDetails: editingExpense.expenseDetails,
+        date: expDate,
+        expenseDetails: expName.trim(),
+        amount: Number(expAmount) || 0,
+        category: expCategory,
+        notes: expNotes || undefined,
+      }).unwrap();
+
+      setIsEditExpenseOpen(false);
+      setEditingExpense(null);
+      resetExpenseForm();
+      refetchExp();
+    } catch (err) {
+      console.error('Failed to update expense', err);
+      alert('Failed to update expense. Please try again.');
+    }
+  };
+
+  // Handle Delete Expense (DELETE)
+  const handleDeleteExpense = async (exp: ExpenseRecord) => {
+    if (confirm(`Are you sure you want to delete the expense "${exp.expenseDetails}"? This will remove it from Excel and Google Sheet.`)) {
+      try {
+        await deleteExpense(exp.id).unwrap();
+        refetchExp();
+      } catch (err) {
+        console.error('Failed to delete expense', err);
+      }
+    }
   };
 
   const handleExportExcel = () => {
     window.open('/api/excel/export?type=financials', '_blank');
   };
 
-  if (isLoading) {
+  if (isFinLoading || isExpLoading) {
     return (
       <div className="p-12 text-center text-muted-foreground">
         <div className="w-8 h-8 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-        <p className="text-sm">Loading Lavajam financial ledger...</p>
+        <p className="text-sm">Synchronizing Lavajam &amp; Expense ledgers with Google Sheets &amp; Excel...</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 text-xs font-semibold mb-1">
-            <Coins className="w-3.5 h-3.5" /> Lavajam Band Contribution Portal
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold mb-1">
+            <Coins className="w-3.5 h-3.5" /> Lavajam &amp; Treasury Administration
           </div>
           <h2 className="text-2xl font-serif font-black tracking-tight text-foreground">
-            Financial Ledger & Collections
+            Lavajam &amp; Expense Management
           </h2>
           <p className="text-xs text-muted-foreground">
-            Authorized for Overall Major & Treasurer. Real-time collection tracking & audits.
+            Strictly authorized for Major &amp; Treasurer. 100% two-way synchronized with Google Sheets &amp; Excel.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleExportExcel} className="text-xs gap-1.5">
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" /> Export to Excel
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleExportExcel} className="text-xs gap-1.5 shadow-xs">
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" /> Export Excel
           </Button>
-          <Button variant="emerald" size="sm" onClick={() => setIsAddModalOpen(true)} className="text-xs gap-1.5">
+          <Button
+            variant="emerald"
+            size="sm"
+            onClick={() => {
+              resetContributionForm();
+              setIsAddContributionOpen(true);
+            }}
+            className="text-xs gap-1.5 shadow-xs"
+          >
             <Plus className="w-3.5 h-3.5" /> Record Contribution
+          </Button>
+          <Button
+            variant="havenly"
+            size="sm"
+            onClick={() => {
+              resetExpenseForm();
+              setIsAddExpenseOpen(true);
+            }}
+            className="text-xs gap-1.5 shadow-xs"
+          >
+            <Plus className="w-3.5 h-3.5" /> Record Expense
           </Button>
         </div>
       </div>
 
-      {/* Financial KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card className="p-4 border-l-4 border-l-emerald-500">
-          <p className="text-xs text-muted-foreground font-medium">Total Collected</p>
-          <p className="text-2xl font-serif font-bold text-foreground mt-1">
-            {formatCurrency(metrics.totalCollected)}
-          </p>
-          <p className="text-[10px] text-emerald-500 font-medium mt-1">
-            {metrics.paidCount} contributions cleared
-          </p>
-        </Card>
+      {/* Highcharts Visualizations (Pie chart & Bar graph) */}
+      <LavajamCharts
+        contributions={records as any}
+        expenses={expenses}
+      />
 
-        <Card className="p-4 border-l-4 border-l-rose-500">
-          <p className="text-xs text-muted-foreground font-medium">Outstanding / Pending</p>
-          <p className="text-2xl font-serif font-bold text-rose-500 mt-1">
-            {formatCurrency(metrics.totalPending)}
-          </p>
-          <p className="text-[10px] text-muted-foreground mt-1">
-            {metrics.pendingCount} members pending
-          </p>
-        </Card>
+      {/* Tabs: [Contributions] & [Expenses] */}
+      <div className="flex items-center justify-between border-b border-border/80 pb-2">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('contributions');
+              setSearchTerm('');
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'contributions'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+            }`}
+          >
+            <Coins className="w-3.5 h-3.5" />
+            Contributions ({records.length})
+          </button>
 
-        <Card className="p-4 border-l-4 border-l-amber-500">
-          <p className="text-xs text-muted-foreground font-medium">Collection Clearance Rate</p>
-          <div className="flex items-baseline gap-2 mt-1">
-            <span className="text-2xl font-bold font-serif text-foreground">
-              {metrics.collectionRate}%
-            </span>
-            <span className="text-[10px] text-muted-foreground">cleared</span>
-          </div>
-          <div className="w-full bg-muted rounded-full h-1.5 mt-2 overflow-hidden">
-            <div
-              className="bg-emerald-500 h-1.5 rounded-full"
-              style={{ width: `${metrics.collectionRate}%` }}
-            />
-          </div>
-        </Card>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('expenses');
+              setSearchTerm('');
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'expenses'
+                ? 'bg-rose-600 text-white shadow-md'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+            }`}
+          >
+            <TrendingDown className="w-3.5 h-3.5" />
+            Expenses ({expenses.length})
+          </button>
+        </div>
 
-        <Card className="p-4 border-l-4 border-l-blue-500">
-          <p className="text-xs text-muted-foreground font-medium">Standard Contribution</p>
-          <p className="text-2xl font-serif font-bold text-foreground mt-1">₹1,500</p>
-          <p className="text-[10px] text-muted-foreground mt-1">Per member / month</p>
-        </Card>
+        <span className="text-[11px] font-mono text-muted-foreground hidden sm:inline">
+          {activeTab === 'contributions' ? 'Sheet: Lavajam Details' : 'Sheet: Instrument Expenses'}
+        </span>
       </div>
 
       {/* Filters Bar */}
@@ -216,333 +434,766 @@ export function FinancialPortal() {
         <div className="relative flex-1 w-full">
           <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
           <Input
-            placeholder="Search member name, receipt number, transaction ID..."
+            placeholder={
+              activeTab === 'contributions'
+                ? 'Search member name, receipt number, fund type, section...'
+                : 'Search expense name, category, date...'
+            }
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             className="pl-9 text-xs"
           />
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value as any)}
-            className="text-xs w-32"
-          >
-            <option value="All">All Statuses</option>
-            <option value="Paid">Paid</option>
-            <option value="Pending">Pending</option>
-          </Select>
 
-          <Select
-            value={sectionFilter}
-            onChange={e => setSectionFilter(e.target.value)}
-            className="text-xs w-36"
-          >
-            <option value="All">All Sections</option>
-            <option value="Trumpet">Trumpet</option>
-            <option value="Saxophone">Saxophone</option>
-            <option value="Euphonium">Euphonium</option>
-            <option value="Dish">Dish</option>
-            <option value="SideDrum">SideDrum/BaseDrum</option>
-          </Select>
-        </div>
+        {activeTab === 'contributions' && (
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value as any)}
+              className="text-xs w-32"
+            >
+              <option value="All">All Statuses</option>
+              <option value="Paid">Paid</option>
+              <option value="Pending">Pending</option>
+            </Select>
+
+            <Select
+              value={sectionFilter}
+              onChange={e => setSectionFilter(e.target.value)}
+              className="text-xs w-36"
+            >
+              <option value="All">All Sections</option>
+              <option value="Trumpet">Trumpet</option>
+              <option value="Saxophone">Saxophone</option>
+              <option value="Euphonium">Euphonium</option>
+              <option value="Dish">Dish</option>
+              <option value="SideDrum">SideDrum/BaseDrum</option>
+              <option value="External / Hoob">External / Hoob</option>
+            </Select>
+          </div>
+        )}
       </div>
 
-      {/* Ledger DataTable & Mobile Cards */}
-      <Card className="border border-border overflow-hidden">
-        {/* Mobile Ledger Cards (Visible on Phones & Tablets < 768px) */}
-        <div className="block md:hidden p-3 space-y-2.5">
-          {filteredRecords.length === 0 ? (
-            <div className="py-8 text-center text-muted-foreground text-xs p-4 rounded-xl border border-dashed">
-              No contribution records matching the current filters.
-            </div>
-          ) : (
-            filteredRecords.map(record => (
-              <div
-                key={record.id}
-                className="p-3.5 rounded-xl border border-border/70 bg-card/80 space-y-2.5"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-0.5 min-w-0 flex-1">
-                    <div className="font-bold text-sm text-foreground break-words">{record.userName}</div>
-                    <div className="text-xs font-mono text-muted-foreground">
-                      {record.receiptNo || 'Pending Issue'} • {formatDate(record.paidAt)}
+      {/* ========================================================
+          TAB 1: CONTRIBUTIONS (Lavajam Details Table & Mobile Cards)
+         ======================================================== */}
+      {activeTab === 'contributions' && (
+        <Card className="border border-border shadow-xs overflow-hidden">
+          {/* Mobile Ledger Cards (Phones & Tablets < 768px - ZERO horizontal scroll) */}
+          <div className="block md:hidden p-3 space-y-2.5">
+            {filteredContributions.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground text-xs p-4 rounded-xl border border-dashed">
+                No contribution records matching the current filters.
+              </div>
+            ) : (
+              filteredContributions.map(record => (
+                <div
+                  key={record.id}
+                  className="p-3.5 rounded-xl border border-border/70 bg-card/90 space-y-2.5 shadow-xs"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-0.5 min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-sm text-foreground break-words">{record.userName}</span>
+                        {record.fundType === 'Hoob' ? (
+                          <Badge variant="gold" className="text-[9px] py-0 px-1 font-bold">
+                            Hoob
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[9px] py-0 px-1 font-medium">
+                            Lavajam
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-xs font-mono text-muted-foreground">
+                        {record.date || '24/09/2026'} • {record.receiptNo || 'REC-2026'}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleToggleStatus(record.id, record.status)}
-                      className="cursor-pointer transition-transform hover:scale-105"
-                      title="Click to toggle status"
-                    >
+
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <Badge
                         variant={record.status === 'Paid' ? 'emerald' : 'destructive'}
                         className="text-[10px] font-bold"
                       >
                         {record.status}
                       </Badge>
-                    </button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(record.id)}
-                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive bg-muted/20"
-                      title="Delete Record"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <Badge variant="outline" className="text-[10px] py-0">
-                      {record.section}
-                    </Badge>
-                    <span className="text-muted-foreground font-mono">
-                      {record.month} {record.year}
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-bold text-sm text-foreground">
-                      {formatCurrency(record.amount)}
-                    </span>
-                    {record.paymentMethod && (
-                      <span className="block text-[10px] text-muted-foreground font-mono">
-                        {record.paymentMethod}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Desktop Table (Hidden on Phones < 768px) */}
-        <div className="hidden md:block overflow-x-auto">
-          <table className="w-full text-xs text-left">
-            <thead className="bg-muted/60 text-muted-foreground uppercase text-[10px] tracking-wider border-b">
-              <tr>
-                <th className="py-3 px-4">Receipt / Date</th>
-                <th className="py-3 px-4">Member</th>
-                <th className="py-3 px-4">Section</th>
-                <th className="py-3 px-4">Cycle</th>
-                <th className="py-3 px-4">Amount</th>
-                <th className="py-3 px-4">Payment Method</th>
-                <th className="py-3 px-4 text-center">Status</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/60">
-              {filteredRecords.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-8 text-center text-muted-foreground">
-                    No contribution records matching the current filters.
-                  </td>
-                </tr>
-              ) : (
-                filteredRecords.map(record => (
-                  <tr key={record.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="font-mono font-semibold text-foreground">
-                        {record.receiptNo || 'Pending Issue'}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {formatDate(record.paidAt)}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 font-semibold text-foreground">
-                      {record.userName}
-                    </td>
-                    <td className="py-3 px-4">
-                      <Badge variant="outline" className="text-[10px]">
-                        {record.section}
-                      </Badge>
-                    </td>
-                    <td className="py-3 px-4 text-muted-foreground font-medium">
-                      {record.month} {record.year}
-                    </td>
-                    <td className="py-3 px-4 font-bold text-foreground">
-                      {formatCurrency(record.amount)}
-                    </td>
-                    <td className="py-3 px-4 text-muted-foreground">
-                      {record.paymentMethod ? (
-                        <span className="font-medium text-foreground">
-                          {record.paymentMethod}
-                          {record.transactionRef && (
-                            <span className="block text-[10px] text-muted-foreground font-mono truncate max-w-[120px]">
-                              {record.transactionRef}
-                            </span>
-                          )}
-                        </span>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleStatus(record.id, record.status)}
-                        className="cursor-pointer transition-transform hover:scale-105"
-                        title="Click to toggle status"
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleOpenEditContribution(record)}
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-primary bg-muted/20"
+                        title="Edit Record"
                       >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteContribution(record)}
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive bg-muted/20"
+                        title="Delete Record"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-border/60 text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="outline" className="text-[10px] py-0">
+                        {record.section || 'General'}
+                      </Badge>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-sm text-foreground">
+                        {formatCurrency(record.amount)}
+                      </span>
+                      {record.paymentMethod && (
+                        <span className="block text-[10px] text-muted-foreground font-mono">
+                          {record.paymentMethod}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop Table (Visible on Screen >= 768px) */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-muted/60 text-muted-foreground uppercase text-[10px] tracking-wider border-b">
+                <tr>
+                  <th className="py-3 px-4">Date</th>
+                  <th className="py-3 px-4">Member Name</th>
+                  <th className="py-3 px-4">Section</th>
+                  <th className="py-3 px-4">Amount</th>
+                  <th className="py-3 px-4 text-center">Status</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {filteredContributions.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                      No contribution records matching the current filters.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredContributions.map(record => (
+                    <tr key={record.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="font-mono font-medium text-foreground">
+                          {record.date || '24/09/2026'}
+                        </div>
+                        {record.receiptNo && (
+                          <div className="text-[10px] text-muted-foreground font-mono">
+                            {record.receiptNo}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-foreground flex items-center gap-1.5">
+                          <span>{record.userName}</span>
+                          {record.fundType === 'Hoob' ? (
+                            <Badge variant="gold" className="text-[9px] py-0 px-1 font-bold">
+                              Hoob
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[9px] py-0 px-1 font-medium">
+                              Lavajam
+                            </Badge>
+                          )}
+                        </div>
+                        {record.paymentMethod && (
+                          <div className="text-[10px] text-muted-foreground">
+                            {record.paymentMethod}
+                            {record.transactionRef && ` • ${record.transactionRef}`}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <Badge variant="outline" className="text-[10px]">
+                          {record.section || 'General'}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4 font-bold text-foreground">
+                        {formatCurrency(record.amount)}
+                      </td>
+                      <td className="py-3 px-4 text-center">
                         <Badge
                           variant={record.status === 'Paid' ? 'emerald' : 'destructive'}
                           className="text-[10px] font-bold"
                         >
                           {record.status}
                         </Badge>
-                      </button>
-                    </td>
-                    <td className="py-3 px-4 text-right">
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleOpenEditContribution(record)}
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-primary"
+                            title="Edit Record"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteContribution(record)}
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                            title="Delete Record"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* ========================================================
+          TAB 2: EXPENSES (Instrument Expenses Table & Mobile Cards)
+         ======================================================== */}
+      {activeTab === 'expenses' && (
+        <Card className="border border-border shadow-xs overflow-hidden">
+          {/* Mobile Expense Cards (Phones & Tablets < 768px - ZERO horizontal scroll) */}
+          <div className="block md:hidden p-3 space-y-2.5">
+            {filteredExpenses.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground text-xs p-4 rounded-xl border border-dashed">
+                No expense records recorded yet.
+              </div>
+            ) : (
+              filteredExpenses.map(expense => (
+                <div
+                  key={expense.id}
+                  className="p-3.5 rounded-xl border border-border/70 bg-card/90 space-y-2.5 shadow-xs"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-0.5 min-w-0 flex-1">
+                      <div className="font-bold text-sm text-foreground break-words">
+                        {expense.expenseDetails}
+                      </div>
+                      <div className="text-xs font-mono text-muted-foreground">
+                        {expense.date || '24/09/2026'}
+                        {expense.category && ` • ${expense.category}`}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDelete(record.id)}
-                        className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                        title="Delete Record"
+                        onClick={() => handleOpenEditExpense(expense)}
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-primary bg-muted/20"
+                        title="Edit Expense"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteExpense(expense)}
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive bg-muted/20"
+                        title="Delete Expense"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-border/60 text-xs">
+                    <span className="text-muted-foreground">Expense Outflow</span>
+                    <span className="font-bold text-sm text-rose-500">
+                      {formatCurrency(expense.amount)}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop Expense Table */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-muted/60 text-muted-foreground uppercase text-[10px] tracking-wider border-b">
+                <tr>
+                  <th className="py-3 px-4">Date</th>
+                  <th className="py-3 px-4">Expense Details / Name</th>
+                  <th className="py-3 px-4">Category</th>
+                  <th className="py-3 px-4">Amount</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {filteredExpenses.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                      No expense records recorded yet.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+                ) : (
+                  filteredExpenses.map(expense => (
+                    <tr key={expense.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="py-3 px-4 font-mono font-medium text-foreground">
+                        {expense.date || '24/09/2026'}
+                      </td>
+                      <td className="py-3 px-4 font-semibold text-foreground">
+                        {expense.expenseDetails}
+                        {expense.notes && (
+                          <div className="text-[10px] text-muted-foreground font-normal">{expense.notes}</div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <Badge variant="outline" className="text-[10px]">
+                          {expense.category || 'Instruments'}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4 font-bold text-rose-500">
+                        {formatCurrency(expense.amount)}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleOpenEditExpense(expense)}
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-primary"
+                            title="Edit Expense"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteExpense(expense)}
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                            title="Delete Expense"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
-      {/* Record Payment Dialog */}
-      <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
+      {/* ========================================================
+          MODAL 1: RECORD CONTRIBUTION (Form matching Image 2)
+         ======================================================== */}
+      <Dialog open={isAddContributionOpen} onOpenChange={setIsAddContributionOpen}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Coins className="w-5 h-5 text-emerald-400" />
+            <Coins className="w-5 h-5 text-emerald-500" />
             Record Lavajam Band Contribution
           </DialogTitle>
           <DialogDescription>
-            Log a verified contribution payment from a band member into the central ledger.
+            Log a verified contribution payment from a band member or Hoob donor into the central ledger and Google Sheets.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleCreateRecord} className="space-y-3 text-xs">
+        <form onSubmit={handleSaveContribution} className="space-y-3.5 text-xs">
+          {/* Fund Type Selection (Lavajam, Hoob) */}
           <div>
-            <label className="font-medium text-muted-foreground mb-1 block">
-              Select Band Member
+            <label className="font-semibold text-foreground mb-1 block">
+              Fund Type
             </label>
             <Select
-              value={formUserId}
-              onChange={e => setFormUserId(e.target.value)}
+              value={fundType}
+              onChange={e => setFundType(e.target.value as 'Lavajam' | 'Hoob')}
+              className="w-full text-xs font-medium"
               required
             >
-              <option value="">-- Choose Member --</option>
-              {users.map(u => (
-                <option key={u.id} value={u.id}>
-                  {u.name} ({u.section} - {u.role})
-                </option>
-              ))}
+              <option value="Lavajam">Lavajam (Band Member Regular Dues)</option>
+              <option value="Hoob">Hoob (Community / External Contribution)</option>
             </Select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/* If Lavajam: Member Dropdown; If Hoob: Name Input */}
+          {fundType === 'Lavajam' ? (
             <div>
-              <label className="font-medium text-muted-foreground mb-1 block">Year</label>
-              <Input
-                type="number"
-                value={formYear}
-                onChange={e => setFormYear(Number(e.target.value))}
+              <label className="font-semibold text-foreground mb-1 block">
+                Select Band Member
+              </label>
+              <Select
+                value={formUserId}
+                onChange={e => setFormUserId(e.target.value)}
+                className="w-full text-xs"
                 required
-              />
-            </div>
-            <div>
-              <label className="font-medium text-muted-foreground mb-1 block">Month</label>
-              <Select value={formMonth} onChange={e => setFormMonth(e.target.value)}>
-                {[
-                  'January', 'February', 'March', 'April', 'May', 'June',
-                  'July', 'August', 'September', 'October', 'November', 'December',
-                ].map(m => (
-                  <option key={m} value={m}>{m}</option>
+              >
+                <option value="">-- Choose Member --</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.section} - {u.role})
+                  </option>
                 ))}
               </Select>
             </div>
+          ) : (
+            <div>
+              <label className="font-semibold text-foreground mb-1 block">
+                Contributor Name
+              </label>
+              <Input
+                value={formHoobName}
+                onChange={e => setFormHoobName(e.target.value)}
+                placeholder="Enter donor or community member name"
+                className="text-xs"
+                required
+              />
+            </div>
+          )}
+
+          {/* Amount (INR ₹) */}
+          <div>
+            <label className="font-semibold text-foreground mb-1 block">
+              Amount (INR ₹)
+            </label>
+            <Input
+              type="number"
+              value={formAmount}
+              onChange={e => setFormAmount(Number(e.target.value))}
+              placeholder="1000"
+              className="text-xs w-full"
+              required
+            />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/* Contribution Date (in next line) */}
+          <div>
+            <label className="font-semibold text-foreground mb-1 block">
+              Contribution Date
+            </label>
+            <ThemedDatePicker
+              value={formDate}
+              onChange={setFormDate}
+              label="Contribution Date"
+            />
+          </div>
+
+          <DialogFooter className="gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsAddContributionOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" variant="emerald" disabled={isCreatingFin}>
+              {isCreatingFin ? 'Saving...' : 'Save Contribution'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
+
+      {/* ========================================================
+          MODAL 2: EDIT CONTRIBUTION (Popup to edit details)
+         ======================================================== */}
+      <Dialog open={isEditContributionOpen} onOpenChange={setIsEditContributionOpen}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Edit2 className="w-5 h-5 text-emerald-500" />
+            Edit Contribution Record
+          </DialogTitle>
+          <DialogDescription>
+            Modify details for this contribution. Updates will sync with Excel and Google Sheets under Lavajam Details.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleUpdateContribution} className="space-y-3.5 text-xs">
+          <div>
+            <label className="font-semibold text-foreground mb-1 block">
+              Fund Type
+            </label>
+            <Select
+              value={fundType}
+              onChange={e => setFundType(e.target.value as 'Lavajam' | 'Hoob')}
+              className="w-full text-xs font-medium"
+              required
+            >
+              <option value="Lavajam">Lavajam</option>
+              <option value="Hoob">Hoob</option>
+            </Select>
+          </div>
+
+          {fundType === 'Lavajam' ? (
             <div>
-              <label className="font-medium text-muted-foreground mb-1 block">
+              <label className="font-semibold text-foreground mb-1 block">
+                Band Member
+              </label>
+              <Select
+                value={formUserId}
+                onChange={e => setFormUserId(e.target.value)}
+                className="w-full text-xs"
+              >
+                <option value="">{editingContribution?.userName || '-- Choose Member --'}</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.section})
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : (
+            <div>
+              <label className="font-semibold text-foreground mb-1 block">
+                Contributor Name
+              </label>
+              <Input
+                value={formHoobName}
+                onChange={e => setFormHoobName(e.target.value)}
+                className="text-xs"
+                required
+              />
+            </div>
+          )}
+
+          {/* Amount (INR ₹) */}
+          <div>
+            <label className="font-semibold text-foreground mb-1 block">
+              Amount (INR ₹)
+            </label>
+            <Input
+              type="number"
+              value={formAmount}
+              onChange={e => setFormAmount(Number(e.target.value))}
+              className="text-xs w-full"
+              required
+            />
+          </div>
+
+          {/* Contribution Date (in next line) */}
+          <div>
+            <label className="font-semibold text-foreground mb-1 block">
+              Contribution Date
+            </label>
+            <ThemedDatePicker
+              value={formDate}
+              onChange={setFormDate}
+              label="Contribution Date"
+            />
+          </div>
+
+          <DialogFooter className="gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsEditContributionOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" variant="emerald" disabled={isUpdatingFin}>
+              {isUpdatingFin ? 'Updating...' : 'Update Contribution'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
+
+      {/* ========================================================
+          MODAL 3: RECORD EXPENSE (DatePicker, Expense Name, Amount)
+         ======================================================== */}
+      <Dialog open={isAddExpenseOpen} onOpenChange={setIsAddExpenseOpen}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <TrendingDown className="w-5 h-5 text-rose-500" />
+            Record Instrument Expense
+          </DialogTitle>
+          <DialogDescription>
+            Log an instrument or operational expenditure into the Instrument Expenses sheet.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSaveExpense} className="space-y-3.5 text-xs">
+          <div>
+            <label className="font-semibold text-foreground mb-1 block">
+              Expense Date
+            </label>
+            <ThemedDatePicker
+              value={expDate}
+              onChange={setExpDate}
+              label="Expense Date"
+            />
+          </div>
+
+          <div>
+            <label className="font-semibold text-foreground mb-1 block">
+              Expense Name / Details
+            </label>
+            <Input
+              value={expName}
+              onChange={e => setExpName(e.target.value)}
+              placeholder="e.g. Instrument purchase, Banner express, Valve oil"
+              className="text-xs"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="font-semibold text-foreground mb-1 block">
                 Amount (INR ₹)
               </label>
               <Input
                 type="number"
-                value={formAmount}
-                onChange={e => setFormAmount(Number(e.target.value))}
+                value={expAmount}
+                onChange={e => setExpAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                placeholder="e.g. 2500"
+                className="text-xs"
                 required
               />
             </div>
+
             <div>
-              <label className="font-medium text-muted-foreground mb-1 block">Status</label>
+              <label className="font-semibold text-foreground mb-1 block">
+                Category
+              </label>
               <Select
-                value={formStatus}
-                onChange={e => setFormStatus(e.target.value as any)}
+                value={expCategory}
+                onChange={e => setExpCategory(e.target.value)}
+                className="text-xs"
               >
-                <option value="Paid">Paid</option>
-                <option value="Pending">Pending</option>
+                <option value="Instruments">Instruments &amp; Parts</option>
+                <option value="Maintenance">Maintenance &amp; Tuning</option>
+                <option value="Logistics">Logistics &amp; Transport</option>
+                <option value="Uniforms">Uniforms &amp; Badges</option>
+                <option value="Printing">Printing &amp; Banners</option>
+                <option value="Miscellaneous">Miscellaneous</option>
               </Select>
             </div>
           </div>
 
-          {formStatus === 'Paid' && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="font-medium text-muted-foreground mb-1 block">
-                  Payment Method
-                </label>
-                <Select
-                  value={formMethod}
-                  onChange={e => setFormMethod(e.target.value as any)}
-                >
-                  <option value="UPI">UPI (GPay / PhonePe / Paytm)</option>
-                  <option value="Cash">Cash at Practice</option>
-                  <option value="Bank Transfer">Bank Transfer (NEFT/IMPS)</option>
-                  <option value="Cheque">Cheque</option>
-                </Select>
-              </div>
-              <div>
-                <label className="font-medium text-muted-foreground mb-1 block">
-                  Transaction Ref / Receipt Note
-                </label>
-                <Input
-                  value={formRef}
-                  onChange={e => setFormRef(e.target.value)}
-                  placeholder="e.g. UPI Ref / Cash receipt"
-                />
-              </div>
-            </div>
-          )}
-
           <div>
-            <label className="font-medium text-muted-foreground mb-1 block">
-              Internal Notes
+            <label className="font-semibold text-foreground mb-1 block">
+              Additional Notes
             </label>
             <Input
-              value={formNotes}
-              onChange={e => setFormNotes(e.target.value)}
-              placeholder="e.g. Uniform maintenance, instrument tuning fund"
+              value={expNotes}
+              onChange={e => setExpNotes(e.target.value)}
+              placeholder="e.g. Vendor name, invoice number"
+              className="text-xs"
             />
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 pt-2">
             <Button
               type="button"
               variant="outline"
-              onClick={() => setIsAddModalOpen(false)}
+              onClick={() => setIsAddExpenseOpen(false)}
             >
               Cancel
             </Button>
-            <Button type="submit" variant="emerald" disabled={isCreating}>
-              {isCreating ? 'Saving...' : 'Save Contribution'}
+            <Button type="submit" variant="havenly" disabled={isCreatingExp}>
+              {isCreatingExp ? 'Saving...' : 'Save Expense'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </Dialog>
+
+      {/* ========================================================
+          MODAL 4: EDIT EXPENSE
+         ======================================================== */}
+      <Dialog open={isEditExpenseOpen} onOpenChange={setIsEditExpenseOpen}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Edit2 className="w-5 h-5 text-rose-500" />
+            Edit Instrument Expense
+          </DialogTitle>
+          <DialogDescription>
+            Modify expense details. Changes will synchronize with Excel and Google Sheets under Instrument Expenses.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleUpdateExpense} className="space-y-3.5 text-xs">
+          <div>
+            <label className="font-semibold text-foreground mb-1 block">
+              Expense Date
+            </label>
+            <ThemedDatePicker
+              value={expDate}
+              onChange={setExpDate}
+              label="Expense Date"
+            />
+          </div>
+
+          <div>
+            <label className="font-semibold text-foreground mb-1 block">
+              Expense Name / Details
+            </label>
+            <Input
+              value={expName}
+              onChange={e => setExpName(e.target.value)}
+              className="text-xs"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="font-semibold text-foreground mb-1 block">
+                Amount (INR ₹)
+              </label>
+              <Input
+                type="number"
+                value={expAmount}
+                onChange={e => setExpAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                className="text-xs"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="font-semibold text-foreground mb-1 block">
+                Category
+              </label>
+              <Select
+                value={expCategory}
+                onChange={e => setExpCategory(e.target.value)}
+                className="text-xs"
+              >
+                <option value="Instruments">Instruments &amp; Parts</option>
+                <option value="Maintenance">Maintenance &amp; Tuning</option>
+                <option value="Logistics">Logistics &amp; Transport</option>
+                <option value="Uniforms">Uniforms &amp; Badges</option>
+                <option value="Printing">Printing &amp; Banners</option>
+                <option value="Miscellaneous">Miscellaneous</option>
+              </Select>
+            </div>
+          </div>
+
+          <div>
+            <label className="font-semibold text-foreground mb-1 block">
+              Additional Notes
+            </label>
+            <Input
+              value={expNotes}
+              onChange={e => setExpNotes(e.target.value)}
+              className="text-xs"
+            />
+          </div>
+
+          <DialogFooter className="gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsEditExpenseOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" variant="havenly" disabled={isUpdatingExp}>
+              {isUpdatingExp ? 'Updating...' : 'Update Expense'}
             </Button>
           </DialogFooter>
         </form>

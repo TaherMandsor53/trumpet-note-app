@@ -178,6 +178,7 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
         .map(u => ({
           userId: u.id,
           userName: u.name,
+          itsNumber: u.itsNumber,
           section: u.section,
           status: statusMap[u.id]!.status!,
           notes: statusMap[u.id]?.notes || '',

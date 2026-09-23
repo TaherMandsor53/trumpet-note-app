@@ -3,6 +3,7 @@ import {
   User,
   Tune,
   LavajamRecord,
+  ExpenseRecord,
   AttendanceSession,
   AttendanceReportMetrics,
   DriveFolderSyncResult,
@@ -13,7 +14,7 @@ export const bandApi = createApi({
   baseQuery: fetchBaseQuery({
     baseUrl: '/api',
   }),
-  tagTypes: ['Users', 'Financials', 'PersonalFinancials', 'Attendance', 'Reports', 'Tunes'],
+  tagTypes: ['Users', 'Financials', 'PersonalFinancials', 'Attendance', 'Reports', 'Tunes', 'Expenses'],
   endpoints: (builder) => ({
     // Auth
     getMe: builder.query<{ authenticated: boolean; user: User | null }, void>({
@@ -171,6 +172,13 @@ export const bandApi = createApi({
       }),
       invalidatesTags: ['Attendance', 'Reports'],
     }),
+    deleteAttendanceSession: builder.mutation<{ success: boolean; message?: string }, string>({
+      query: (id) => ({
+        url: `/attendance?id=${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['Attendance', 'Reports'],
+    }),
 
     // Tunes
     getTunes: builder.query<{ tunes: Tune[] }, { section?: string } | void>({
@@ -207,6 +215,41 @@ export const bandApi = createApi({
       }),
       invalidatesTags: ['Tunes'],
     }),
+
+    // Expenses
+    getExpenses: builder.query<{
+      expenses: ExpenseRecord[];
+      metrics: {
+        totalExpenses: number;
+        count: number;
+      };
+    }, void>({
+      query: () => '/expenses',
+      providesTags: ['Expenses'],
+    }),
+    createExpense: builder.mutation<{ success: boolean; expense: ExpenseRecord }, Partial<ExpenseRecord>>({
+      query: (body) => ({
+        url: '/expenses',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['Expenses'],
+    }),
+    updateExpense: builder.mutation<{ success: boolean; expense: ExpenseRecord }, Partial<ExpenseRecord> & { originalDetails?: string }>({
+      query: (body) => ({
+        url: '/expenses',
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: ['Expenses'],
+    }),
+    deleteExpense: builder.mutation<{ success: boolean }, string>({
+      query: (id) => ({
+        url: `/expenses?id=${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['Expenses'],
+    }),
   }),
 });
 
@@ -226,9 +269,14 @@ export const {
   useCreateFinancialRecordMutation,
   useUpdateFinancialRecordMutation,
   useDeleteFinancialRecordMutation,
+  useGetExpensesQuery,
+  useCreateExpenseMutation,
+  useUpdateExpenseMutation,
+  useDeleteExpenseMutation,
   useGetAttendanceSessionsQuery,
   useGetAttendanceMetricsQuery,
   useMarkAttendanceMutation,
+  useDeleteAttendanceSessionMutation,
   useGetTunesQuery,
   useCreateTuneMutation,
   useAssignTuneMutation,

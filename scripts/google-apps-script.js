@@ -68,6 +68,23 @@ function doGet(e) {
       });
     }
 
+    // Cleanup extra appended rows in Attendance Details sheet
+    if (param.action === "cleanupAttendance") {
+      var attSheetClean = ss.getSheetByName("Attendance Details");
+      if (attSheetClean) {
+        var lastRowClean = attSheetClean.getLastRow();
+        var deletedCount = 0;
+        for (var rc = lastRowClean; rc > 41; rc--) {
+          attSheetClean.deleteRow(rc);
+          deletedCount++;
+        }
+        return createJsonResponse({
+          success: true,
+          message: "Cleaned up " + deletedCount + " extra rows from Attendance Details sheet. Exactly 40 members remain."
+        });
+      }
+    }
+
     var sheetName = param.sheet || "Member Details";
     var sheet = ss.getSheetByName(sheetName) || ss.getSheets()[0];
     var data = sheet.getDataRange().getValues();
@@ -88,6 +105,11 @@ function doGet(e) {
         return cell !== undefined && cell !== null && String(cell).trim() !== "";
       });
       if (!hasData) continue;
+
+      // In Attendance Details, rows must have a valid member name in Column A
+      if (sheetName === "Attendance Details" && !String(row[0] || "").trim()) {
+        continue;
+      }
 
       var item = {};
       for (var j = 0; j < headers.length; j++) {
@@ -356,55 +378,320 @@ function doPost(e) {
     }
 
     // ------------------------------------------------------------------------
-    // ACTION: updateAttendance
+    // ACTION: updateAttendance & cleanupAttendance
     // ------------------------------------------------------------------------
-    if (action === "updateAttendance") {
+    if (action === "updateAttendance" || action === "cleanupAttendance") {
       var attSheet = ss.getSheetByName("Attendance Details");
       if (!attSheet) {
-        attSheet = ss.insertSheet("Attendance Details");
-        attSheet.appendRow(["ITS Number", "Member Name", "Section"]);
+        return createJsonResponse({ error: "Attendance Details sheet not found." });
       }
 
-      var dateStr = String(body.date || new Date().toISOString().split("T")[0]);
-      var attData = attSheet.getDataRange().getValues();
-      var attHeaders = attData[0].map(function(h) { return String(h).trim(); });
+      // Step 1: Cleanup any erroneously appended duplicate rows below row 41
+      // The real members in Attendance Details are strictly rows 2 to 41.
+      var lastRow = attSheet.getLastRow();
+      var removedRows = 0;
+      for (var r = lastRow; r > 41; r--) {
+        attSheet.deleteRow(r);
+        removedRows++;
+      }
 
-      var dateColIndex = attHeaders.indexOf(dateStr);
+      if (action === "cleanupAttendance") {
+        return createJsonResponse({
+          success: true,
+          message: "Cleaned up " + removedRows + " invalid rows from Attendance Details sheet. Exactly 40 members remain."
+        });
+      }
+
+      // Format date: DD/MM/YYYY
+      var rawDate = String(body.date || new Date().toISOString().split("T")[0]).trim();
+      var dateParts = rawDate.split("-");
+      var formattedDate = dateParts.length === 3 ? (dateParts[2] + "/" + dateParts[1] + "/" + dateParts[0]) : rawDate;
+
+      // Re-read data after cleanup
+      var attData = attSheet.getDataRange().getValues();
+      if (attData.length === 0) {
+        return createJsonResponse({ error: "Attendance Details sheet is empty." });
+      }
+
+      var headerRow = attData[0];
+      var attHeaders = headerRow.map(function(h) { return String(h || "").trim(); });
+
+      // Find or create the column for the selected date
+      var dateColIndex = -1;
+      for (var h = 0; h < attHeaders.length; h++) {
+        var hdr = attHeaders[h];
+        if (hdr === formattedDate || hdr === rawDate) {
+          dateColIndex = h;
+          break;
+        }
+      }
+
+      // For every new date, add that date as column header given in image
       if (dateColIndex === -1) {
         dateColIndex = attHeaders.length;
-        attSheet.getRange(1, dateColIndex + 1).setValue(dateStr);
+        attSheet.getRange(1, dateColIndex + 1).setValue(formattedDate);
+      }
+
+      // Normalization helper (lowercase, alphanumeric characters only)
+      function normStr(v) {
+        return String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+      }
+
+      // Build member index map from Column A (Full Name) in rows 2 to 41
+      var nameRowMap = {};
+      for (var rowIdx = 1; rowIdx < Math.min(attData.length, 41); rowIdx++) {
+        var fullNameVal = String(attData[rowIdx][0] || "").trim();
+        if (fullNameVal) {
+          nameRowMap[normStr(fullNameVal)] = rowIdx + 1; // 1-based row index in spreadsheet
+        }
       }
 
       var records = body.records || [];
-      var nameRowMap = {};
-      for (var r = 1; r < attData.length; r++) {
-        var nameInSheet = String(attData[r][1] || "").trim().toLowerCase();
-        if (nameInSheet) {
-          nameRowMap[nameInSheet] = r + 1;
-        }
-      }
+      var updatedCount = 0;
 
       for (var k = 0; k < records.length; k++) {
         var rec = records[k];
         var memberName = String(rec.name || rec.userName || "").trim();
-        var memberKey = memberName.toLowerCase();
-        var statusVal = rec.status || "Present";
+        var statusVal = String(rec.status || "").trim();
 
-        var targetRow = nameRowMap[memberKey];
-        if (!targetRow) {
-          var newAttRow = [rec.itsNumber || "", memberName, rec.section || ""];
-          attSheet.appendRow(newAttRow);
-          targetRow = attSheet.getLastRow();
-          nameRowMap[memberKey] = targetRow;
+        if (!statusVal) continue;
+
+        // Standardize status capitalization ('Present', 'Absent', 'Late')
+        var lowerStatus = statusVal.toLowerCase();
+        if (lowerStatus === "present") statusVal = "Present";
+        else if (lowerStatus === "absent") statusVal = "Absent";
+        else if (lowerStatus === "late") statusVal = "Late";
+
+        // Find existing member by Full Name in Column A - NEVER ADD A NEW ROW OR NAME OR ITS!
+        var targetRow = null;
+        if (memberName) {
+          var normName = normStr(memberName);
+          if (nameRowMap[normName]) {
+            targetRow = nameRowMap[normName];
+          } else {
+            // Partial fuzzy match against existing Column A names
+            var keys = Object.keys(nameRowMap);
+            for (var ki = 0; ki < keys.length; ki++) {
+              var key = keys[ki];
+              if (normName.indexOf(key) !== -1 || key.indexOf(normName) !== -1) {
+                targetRow = nameRowMap[key];
+                break;
+              }
+            }
+          }
         }
 
-        attSheet.getRange(targetRow, dateColIndex + 1).setValue(statusVal);
+        // ONLY update attendance (Present, Absent, Late) in that member's row under dateColIndex
+        // DO NOT add name or ITS
+        if (targetRow) {
+          attSheet.getRange(targetRow, dateColIndex + 1).setValue(statusVal);
+          updatedCount++;
+        }
       }
 
       return createJsonResponse({
         success: true,
-        message: "Attendance recorded for " + dateStr + " in Attendance Details sheet (" + records.length + " members)."
+        message: "Attendance updated for " + formattedDate + " against " + updatedCount + " members in Attendance Details sheet."
       });
+    }
+
+    // ------------------------------------------------------------------------
+    // ACTION: addLavajamRecord
+    // ------------------------------------------------------------------------
+    if (action === "addLavajamRecord") {
+      var lavSheet = ss.getSheetByName("Lavajam Details");
+      if (!lavSheet) {
+        lavSheet = ss.insertSheet("Lavajam Details");
+        lavSheet.appendRow(["Date", "Full Name", "Fund Type", "Amount"]);
+      }
+      var rec = body.record || body;
+      var dateVal = String(rec.date || "").trim();
+      if (!dateVal) {
+        var d = new Date();
+        var dd = String(d.getDate()).padStart(2, '0');
+        var mm = String(d.getMonth() + 1).padStart(2, '0');
+        dateVal = dd + "/" + mm + "/" + d.getFullYear();
+      }
+      var nameVal = String(rec.userName || rec.name || rec["Full Name"] || "").trim();
+      var fundVal = String(rec.fundType || rec["Fund Type"] || "Lavajam").trim();
+      var amountVal = Number(rec.amount || 0);
+
+      lavSheet.appendRow([dateVal, nameVal, fundVal, amountVal]);
+      return createJsonResponse({
+        success: true,
+        message: "Lavajam record for " + nameVal + " added to Lavajam Details sheet."
+      });
+    }
+
+    // ------------------------------------------------------------------------
+    // ACTION: updateLavajamRecord
+    // ------------------------------------------------------------------------
+    if (action === "updateLavajamRecord") {
+      var lavSheet = ss.getSheetByName("Lavajam Details");
+      if (!lavSheet) return createJsonResponse({ error: "Lavajam Details sheet not found." });
+      var rec = body.record || body;
+      var targetName = String(rec.originalName || rec.userName || rec.name || "").trim().toLowerCase();
+      var dateVal = String(rec.date || "").trim();
+      var fundVal = String(rec.fundType || "Lavajam").trim();
+      var amountVal = Number(rec.amount || 0);
+      var newName = String(rec.userName || rec.name || "").trim();
+
+      var data = lavSheet.getDataRange().getValues();
+      var targetRow = -1;
+      if (body.rowIndex && body.rowIndex > 1 && body.rowIndex <= data.length) {
+        targetRow = body.rowIndex;
+      } else {
+        for (var r = 1; r < data.length; r++) {
+          var rowName = String(data[r][1] || "").trim().toLowerCase();
+          if (rowName === targetName) {
+            targetRow = r + 1;
+            break;
+          }
+        }
+      }
+
+      if (targetRow > 0) {
+        if (dateVal) lavSheet.getRange(targetRow, 1).setValue(dateVal);
+        if (newName) lavSheet.getRange(targetRow, 2).setValue(newName);
+        if (fundVal) lavSheet.getRange(targetRow, 3).setValue(fundVal);
+        if (amountVal) lavSheet.getRange(targetRow, 4).setValue(amountVal);
+        return createJsonResponse({
+          success: true,
+          message: "Lavajam record updated at row " + targetRow
+        });
+      } else {
+        lavSheet.appendRow([dateVal, newName, fundVal, amountVal]);
+        return createJsonResponse({
+          success: true,
+          message: "Lavajam record appended as new row in Lavajam Details sheet."
+        });
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // ACTION: deleteLavajamRecord
+    // ------------------------------------------------------------------------
+    if (action === "deleteLavajamRecord") {
+      var lavSheet = ss.getSheetByName("Lavajam Details");
+      if (!lavSheet) return createJsonResponse({ error: "Lavajam Details sheet not found." });
+      var targetName = String(body.userName || body.name || "").trim().toLowerCase();
+      var data = lavSheet.getDataRange().getValues();
+      var deleteRow = -1;
+      if (body.rowIndex && body.rowIndex > 1 && body.rowIndex <= data.length) {
+        deleteRow = body.rowIndex;
+      } else {
+        for (var r = 1; r < data.length; r++) {
+          var rowName = String(data[r][1] || "").trim().toLowerCase();
+          if (rowName === targetName) {
+            deleteRow = r + 1;
+            break;
+          }
+        }
+      }
+
+      if (deleteRow > 0) {
+        lavSheet.deleteRow(deleteRow);
+        return createJsonResponse({
+          success: true,
+          message: "Lavajam record removed from row " + deleteRow
+        });
+      }
+      return createJsonResponse({ success: false, message: "Record not found in Lavajam Details." });
+    }
+
+    // ------------------------------------------------------------------------
+    // ACTION: addExpense
+    // ------------------------------------------------------------------------
+    if (action === "addExpense") {
+      var expSheet = ss.getSheetByName("Instrument Expenses");
+      if (!expSheet) {
+        expSheet = ss.insertSheet("Instrument Expenses");
+        expSheet.appendRow(["Date", "Expense Details", "Amount"]);
+      }
+      var exp = body.expense || body;
+      var dateVal = String(exp.date || "").trim();
+      var detailsVal = String(exp.expenseDetails || exp.name || "").trim();
+      var amountVal = Number(exp.amount || 0);
+
+      expSheet.appendRow([dateVal, detailsVal, amountVal]);
+      return createJsonResponse({
+        success: true,
+        message: "Expense '" + detailsVal + "' recorded in Instrument Expenses sheet."
+      });
+    }
+
+    // ------------------------------------------------------------------------
+    // ACTION: updateExpense
+    // ------------------------------------------------------------------------
+    if (action === "updateExpense") {
+      var expSheet = ss.getSheetByName("Instrument Expenses");
+      if (!expSheet) return createJsonResponse({ error: "Instrument Expenses sheet not found." });
+      var exp = body.expense || body;
+      var targetDetails = String(exp.originalDetails || exp.expenseDetails || "").trim().toLowerCase();
+      var dateVal = String(exp.date || "").trim();
+      var detailsVal = String(exp.expenseDetails || "").trim();
+      var amountVal = Number(exp.amount || 0);
+
+      var data = expSheet.getDataRange().getValues();
+      var targetRow = -1;
+      if (body.rowIndex && body.rowIndex > 1 && body.rowIndex <= data.length) {
+        targetRow = body.rowIndex;
+      } else {
+        for (var r = 1; r < data.length; r++) {
+          var rowDetails = String(data[r][1] || "").trim().toLowerCase();
+          if (rowDetails === targetDetails) {
+            targetRow = r + 1;
+            break;
+          }
+        }
+      }
+
+      if (targetRow > 0) {
+        if (dateVal) expSheet.getRange(targetRow, 1).setValue(dateVal);
+        if (detailsVal) expSheet.getRange(targetRow, 2).setValue(detailsVal);
+        if (amountVal) expSheet.getRange(targetRow, 3).setValue(amountVal);
+        return createJsonResponse({
+          success: true,
+          message: "Expense updated at row " + targetRow
+        });
+      } else {
+        expSheet.appendRow([dateVal, detailsVal, amountVal]);
+        return createJsonResponse({
+          success: true,
+          message: "Expense appended in Instrument Expenses sheet."
+        });
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // ACTION: deleteExpense
+    // ------------------------------------------------------------------------
+    if (action === "deleteExpense") {
+      var expSheet = ss.getSheetByName("Instrument Expenses");
+      if (!expSheet) return createJsonResponse({ error: "Instrument Expenses sheet not found." });
+      var targetDetails = String(body.expenseDetails || body.name || "").trim().toLowerCase();
+      var data = expSheet.getDataRange().getValues();
+      var deleteRow = -1;
+      if (body.rowIndex && body.rowIndex > 1 && body.rowIndex <= data.length) {
+        deleteRow = body.rowIndex;
+      } else {
+        for (var r = 1; r < data.length; r++) {
+          var rowDetails = String(data[r][1] || "").trim().toLowerCase();
+          if (rowDetails === targetDetails) {
+            deleteRow = r + 1;
+            break;
+          }
+        }
+      }
+
+      if (deleteRow > 0) {
+        expSheet.deleteRow(deleteRow);
+        return createJsonResponse({
+          success: true,
+          message: "Expense removed from row " + deleteRow
+        });
+      }
+      return createJsonResponse({ success: false, message: "Expense not found in Instrument Expenses." });
     }
 
     return createJsonResponse({ error: "Unknown action: " + action });
