@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAttendanceSessions, addAttendanceSession } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
-import { canMarkAttendance } from '@/lib/rbac';
+import { canMarkAttendance, canViewAllAttendance } from '@/lib/rbac';
 import { syncAttendanceToSheet } from '@/lib/google-sheets';
 
 export async function GET(req: NextRequest) {
@@ -9,8 +9,8 @@ export async function GET(req: NextRequest) {
     const user = await getCurrentUser(req);
     const sessions = getAttendanceSessions();
 
-    // Privacy & Scoping: If caller is not Overall Major, only return their own attendance record
-    if (user && user.role !== 'Overall Major') {
+    // Privacy & Scoping: If caller is not Major, only return their own attendance record
+    if (user && !canViewAllAttendance(user.role)) {
       const isUserRecord = (r: any) =>
         r.userId === user.id ||
         (user.itsNumber && (r.userId === user.itsNumber || r.userId === `sheet-${user.itsNumber}`)) ||

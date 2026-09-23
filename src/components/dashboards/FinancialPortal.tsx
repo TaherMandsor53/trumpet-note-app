@@ -248,9 +248,80 @@ export function FinancialPortal() {
         </div>
       </div>
 
-      {/* Ledger DataTable */}
+      {/* Ledger DataTable & Mobile Cards */}
       <Card className="border border-border overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Mobile Ledger Cards (Visible on Phones & Tablets < 768px) */}
+        <div className="block md:hidden p-3 space-y-2.5">
+          {filteredRecords.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground text-xs p-4 rounded-xl border border-dashed">
+              No contribution records matching the current filters.
+            </div>
+          ) : (
+            filteredRecords.map(record => (
+              <div
+                key={record.id}
+                className="p-3.5 rounded-xl border border-border/70 bg-card/80 space-y-2.5"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-0.5 min-w-0 flex-1">
+                    <div className="font-bold text-sm text-foreground break-words">{record.userName}</div>
+                    <div className="text-xs font-mono text-muted-foreground">
+                      {record.receiptNo || 'Pending Issue'} • {formatDate(record.paidAt)}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleStatus(record.id, record.status)}
+                      className="cursor-pointer transition-transform hover:scale-105"
+                      title="Click to toggle status"
+                    >
+                      <Badge
+                        variant={record.status === 'Paid' ? 'emerald' : 'destructive'}
+                        className="text-[10px] font-bold"
+                      >
+                        {record.status}
+                      </Badge>
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(record.id)}
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive bg-muted/20"
+                      title="Delete Record"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant="outline" className="text-[10px] py-0">
+                      {record.section}
+                    </Badge>
+                    <span className="text-muted-foreground font-mono">
+                      {record.month} {record.year}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-bold text-sm text-foreground">
+                      {formatCurrency(record.amount)}
+                    </span>
+                    {record.paymentMethod && (
+                      <span className="block text-[10px] text-muted-foreground font-mono">
+                        {record.paymentMethod}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Desktop Table (Hidden on Phones < 768px) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-xs text-left">
             <thead className="bg-muted/60 text-muted-foreground uppercase text-[10px] tracking-wider border-b">
               <tr>

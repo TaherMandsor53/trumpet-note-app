@@ -25,9 +25,12 @@ import {
   ShieldCheck,
   ShieldAlert,
   Lock,
+  AlertCircle,
 } from 'lucide-react';
 import { useSelector } from 'react-redux';
 import { RootState } from '@/store';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { useToast } from '@/components/ui/toast';
 import { isInstrumentMajor, isOverallMajor, getManagedSection } from '@/lib/rbac';
 import { cn } from '@/lib/utils';
 
@@ -39,6 +42,7 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
   // Authorization: Only Overall Major can mark practice attendance
   const isAuthorizedMajor = isOverallMajor(role);
   const isSectionMajor = isInstrumentMajor(role);
+  const { toast } = useToast();
   const managedSection = getManagedSection(role) || currentUser?.section || 'Trumpet';
 
   const { data: usersData, refetch: refetchUsers } = useGetUsersQuery();
@@ -47,7 +51,8 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
 
   const users = usersData?.users || [];
 
-  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const todayStr = React.useMemo(() => new Date().toISOString().split('T')[0], []);
+  const [date, setDate] = useState(() => todayStr);
 
   // Section filter
   const [sectionFilter, setSectionFilter] = useState<string>(() =>
@@ -62,8 +67,8 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
 
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Attendance status map: strictly Present | Absent | Late
-  const [statusMap, setStatusMap] = useState<Record<string, { status: AttendanceStatus; notes: string }>>({});
+  // Attendance status map: strictly Present | Absent | Late | null (unmarked)
+  const [statusMap, setStatusMap] = useState<Record<string, { status: AttendanceStatus | null; notes: string }>>({});
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [viewMode, setViewMode] = useState<'mark' | 'matrix'>('mark');
 
@@ -76,20 +81,47 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
     return d;
   };
 
-  // Initialize status map for all users (defaults to Present)
+  // Find if an attendance session already exists for the selected date
+  const existingSessionForDate = React.useMemo(() => {
+    return (sessionsData?.sessions || []).find(
+      s => s.date === date || (s.date && s.date.startsWith(date))
+    );
+  }, [sessionsData?.sessions, date]);
+
+  const isAlreadyMarked = Boolean(
+    existingSessionForDate && existingSessionForDate.records && existingSessionForDate.records.length > 0
+  );
+
+  // Initialize status map for all users:
+  // If session already exists for date, populate from existing records; otherwise by default do NOT select Present!
   useEffect(() => {
     if (users.length > 0) {
-      setStatusMap(prev => {
-        const initial = { ...prev };
+      const newMap: Record<string, { status: AttendanceStatus | null; notes: string }> = {};
+
+      if (existingSessionForDate && existingSessionForDate.records) {
         users.forEach(u => {
-          if (!initial[u.id]) {
-            initial[u.id] = { status: 'Present', notes: '' };
+          const rec = existingSessionForDate.records.find(
+            r =>
+              r.userId === u.id ||
+              (u.itsNumber && (r.userId === u.itsNumber || r.userId === `sheet-${u.itsNumber}`)) ||
+              (r.userName && u.name && r.userName.trim().toUpperCase() === u.name.trim().toUpperCase())
+          );
+          if (rec) {
+            newMap[u.id] = { status: rec.status, notes: rec.notes || '' };
+          } else {
+            newMap[u.id] = { status: null, notes: '' };
           }
         });
-        return initial;
-      });
+      } else {
+        // By default, do NOT select Present! Start as null (unmarked)
+        users.forEach(u => {
+          newMap[u.id] = { status: null, notes: '' };
+        });
+      }
+
+      setStatusMap(newMap);
     }
-  }, [users]);
+  }, [date, existingSessionForDate, users]);
 
   const handleStatusChange = (userId: string, status: AttendanceStatus) => {
     if (!isAuthorizedMajor) return;
@@ -110,15 +142,20 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
   // Bulk status assignment (Overall Major only)
   const markAll = (status: AttendanceStatus) => {
     if (!isAuthorizedMajor) return;
-    const updated: Record<string, { status: AttendanceStatus; notes: string }> = {};
+    const updated: Record<string, { status: AttendanceStatus | null; notes: string }> = {};
     users.forEach(u => {
       if (sectionFilter === 'All' || u.section === sectionFilter) {
         updated[u.id] = { status, notes: statusMap[u.id]?.notes || '' };
       } else {
-        updated[u.id] = statusMap[u.id] || { status: 'Present', notes: '' };
+        updated[u.id] = statusMap[u.id] || { status: null, notes: '' };
       }
     });
     setStatusMap(prev => ({ ...prev, ...updated }));
+    const statusLabel = status === 'Present' ? 'All Present' : status === 'Late' ? 'All Late' : 'All Absent';
+    toast.warning(
+      `Quick Mark: ${statusLabel}`,
+      `Marked ${sectionFilter === 'All' ? 'all' : sectionFilter} members as ${status}. Click "Submit & Update Attendance Details Sheet" to commit.`
+    );
   };
 
   // Submit attendance and trigger Google Sheet sync
@@ -137,13 +174,23 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
     try {
       const recordsToSubmit = users
         .filter(u => sectionFilter === 'All' || u.section === sectionFilter)
+        .filter(u => statusMap[u.id]?.status)
         .map(u => ({
           userId: u.id,
           userName: u.name,
           section: u.section,
-          status: statusMap[u.id]?.status || 'Present',
+          status: statusMap[u.id]!.status!,
           notes: statusMap[u.id]?.notes || '',
         }));
+
+      if (recordsToSubmit.length === 0) {
+        setMessage({
+          text: 'Please select attendance (Present, Late, or Absent) for members before saving.',
+          type: 'error',
+        });
+        toast.error('No Attendance Marked', 'Please select Present, Late, or Absent for at least one member before saving.');
+        return;
+      }
 
       const res = await markAttendance({
         date,
@@ -152,18 +199,22 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
         records: recordsToSubmit,
       }).unwrap();
 
+      const successText = (res as any)?.message || `Attendance for ${formatDDMMYYYY(date)} recorded and synchronized to Attendance Details sheet.`;
       setMessage({
-        text: res.message || `Attendance for ${formatDDMMYYYY(date)} recorded and synchronized to Attendance Details sheet.`,
+        text: successText,
         type: 'success',
       });
+      toast.success('Attendance Recorded & Synced', successText);
 
       refetchSessions();
       onSuccess?.();
     } catch (err: any) {
+      const errText = err?.data?.error || err?.message || 'Failed to submit attendance session.';
       setMessage({
-        text: err?.data?.error || 'Failed to submit attendance session.',
+        text: errText,
         type: 'error',
       });
+      toast.error('Attendance Submission Failed', errText);
     }
   };
 
@@ -196,6 +247,7 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
   const presentCount = filteredUsers.filter(u => statusMap[u.id]?.status === 'Present').length;
   const lateCount = filteredUsers.filter(u => statusMap[u.id]?.status === 'Late').length;
   const absentCount = filteredUsers.filter(u => statusMap[u.id]?.status === 'Absent').length;
+  const unmarkedCount = filteredUsers.filter(u => !statusMap[u.id]?.status).length;
 
   const sortedSessions = [...(sessionsData?.sessions || [])].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
@@ -289,21 +341,13 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4 pt-5">
             {message && (
-              <div
-                className={cn(
-                  'p-3.5 rounded-lg text-xs font-medium border flex items-center gap-2',
-                  message.type === 'success'
-                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
-                    : 'bg-destructive/15 border-destructive/30 text-destructive'
-                )}
+              <Alert
+                variant={message.type === 'success' ? 'success' : 'destructive'}
+                onDismiss={() => setMessage(null)}
               >
-                {message.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                ) : (
-                  <XCircle className="w-4 h-4 text-destructive shrink-0" />
-                )}
-                <span>{message.text}</span>
-              </div>
+                <AlertTitle>{message.type === 'success' ? 'Attendance Recorded' : 'Action Failed'}</AlertTitle>
+                <AlertDescription>{message.text}</AlertDescription>
+              </Alert>
             )}
 
             {/* Redesigned Themed Date Picker Header (Practice Type & Session Focus Removed per Image 2) */}
@@ -317,6 +361,7 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                     value={date}
                     onChange={setDate}
                     disabled={!isAuthorizedMajor}
+                    maxDate={todayStr}
                   />
                 </div>
 
@@ -356,6 +401,36 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
               </div>
             </div>
 
+            {/* Note banner when attendance is already marked for this date */}
+            {isAlreadyMarked && (
+              <div className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in duration-200">
+                <div className="flex items-center gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <div>
+                    <span className="font-bold text-amber-300">
+                      Attendance is already marked for this date ({formatDDMMYYYY(date)}):
+                    </span>{' '}
+                    <span className="text-amber-100/90">
+                      {filteredUsers.length - unmarkedCount} of {filteredUsers.length} members recorded in this session.
+                      {unmarkedCount > 0 ? (
+                        <span className="text-amber-300 font-bold ml-1">
+                          Notice: {unmarkedCount} member{unmarkedCount > 1 ? 's are' : ' is'} not marked (highlighted below).
+                        </span>
+                      ) : (
+                        ' All member attendance entries are complete.'
+                      )}
+                    </span>
+                  </div>
+                </div>
+                <Badge
+                  variant="outline"
+                  className="border-emerald-500/40 text-emerald-400 bg-emerald-500/10 text-[10px] shrink-0 font-bold uppercase tracking-wider self-start sm:self-auto"
+                >
+                  Already Recorded
+                </Badge>
+              </div>
+            )}
+
             {/* Filter & Live Counter Row */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
               <div className="flex items-center gap-2 flex-wrap">
@@ -392,7 +467,7 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
               </div>
 
               {/* Real-time Status Badges */}
-              <div className="flex items-center gap-2 text-xs font-medium">
+              <div className="flex items-center gap-2 text-xs font-medium flex-wrap">
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                   <CheckCircle2 className="w-3 h-3" /> {presentCount} Present
                 </span>
@@ -402,11 +477,146 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                 <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-rose-500/15 text-rose-300 border border-rose-500/30">
                   <XCircle className="w-3 h-3" /> {absentCount} Absent
                 </span>
+                {unmarkedCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-200 border border-amber-500/50 font-semibold animate-pulse">
+                    <AlertCircle className="w-3 h-3 text-amber-400" /> {unmarkedCount} Not Marked
+                  </span>
+                )}
               </div>
             </div>
 
-            {/* Member Attendance Table: strictly Present, Absent, Late */}
-            <div className="border border-border/80 rounded-xl overflow-hidden bg-card">
+            {/* Mobile Card View (Optimized for Phones & Portrait Tablets < 768px) */}
+            <div className="block md:hidden space-y-2.5">
+              {filteredUsers.length === 0 ? (
+                <div className="py-8 text-center text-muted-foreground text-xs p-4 rounded-xl border border-dashed">
+                  No members matching filter.
+                </div>
+              ) : (
+                filteredUsers.map(u => {
+                  const current = statusMap[u.id];
+                  const isUnmarked = !current?.status;
+
+                  return (
+                    <div
+                      key={u.id}
+                      className={cn(
+                        'p-3.5 rounded-xl border transition-all space-y-2.5',
+                        isUnmarked
+                          ? 'border-amber-500/60 bg-amber-500/10 shadow-sm'
+                          : 'border-border/70 bg-card/80 hover:bg-card'
+                      )}
+                    >
+                      {/* Top: Name, ITS, Status Badge */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-0.5 min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-foreground text-sm uppercase break-words leading-tight">
+                              {u.name}
+                            </span>
+                            {isUnmarked && (
+                              <Badge className="bg-amber-500 text-black border-amber-600 text-[9px] py-0 px-1.5 font-black uppercase">
+                                Not Marked
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
+                            <span className="text-[#D97736]">ITS: {u.itsNumber || '—'}</span>
+                            <span>•</span>
+                            <span>{u.section === 'SideDrum' ? 'SideDrum/BaseDrum' : u.section}</span>
+                          </div>
+                          <div className="text-[11px] text-muted-foreground/80">
+                            Role: <span className="font-medium text-foreground">{u.role}</span>
+                          </div>
+                        </div>
+
+                        {/* Current Status Pill on Mobile */}
+                        {current?.status && (
+                          <Badge
+                            className={cn(
+                              'text-[10px] font-bold shrink-0 uppercase tracking-wider',
+                              current.status === 'Present' && 'bg-emerald-600 text-white',
+                              current.status === 'Late' && 'bg-amber-600 text-white',
+                              current.status === 'Absent' && 'bg-rose-600 text-white'
+                            )}
+                          >
+                            {current.status}
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Touch-Friendly Action Buttons on Mobile (Span full width) */}
+                      {isAuthorizedMajor ? (
+                        <div className="grid grid-cols-3 gap-1.5 pt-1.5 border-t border-border/40">
+                          <button
+                            type="button"
+                            onClick={() => handleStatusChange(u.id, 'Present')}
+                            className={cn(
+                              'h-10 rounded-lg text-xs font-bold border transition-all flex items-center justify-center gap-1 cursor-pointer',
+                              current?.status === 'Present'
+                                ? 'bg-emerald-600 text-white border-emerald-500 shadow-md ring-2 ring-emerald-400'
+                                : 'bg-muted/30 text-muted-foreground border-border/60 hover:bg-emerald-500/10 hover:text-emerald-300'
+                            )}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Present</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStatusChange(u.id, 'Late')}
+                            className={cn(
+                              'h-10 rounded-lg text-xs font-bold border transition-all flex items-center justify-center gap-1 cursor-pointer',
+                              current?.status === 'Late'
+                                ? 'bg-amber-600 text-white border-amber-500 shadow-md ring-2 ring-amber-400'
+                                : 'bg-muted/30 text-muted-foreground border-border/60 hover:bg-amber-500/10 hover:text-amber-300'
+                            )}
+                          >
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>Late</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStatusChange(u.id, 'Absent')}
+                            className={cn(
+                              'h-10 rounded-lg text-xs font-bold border transition-all flex items-center justify-center gap-1 cursor-pointer',
+                              current?.status === 'Absent'
+                                ? 'bg-rose-600 text-white border-rose-500 shadow-md ring-2 ring-rose-400'
+                                : 'bg-muted/30 text-muted-foreground border-border/60 hover:bg-rose-500/10 hover:text-rose-300'
+                            )}
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            <span>Absent</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="pt-1 border-t border-border/40 text-center">
+                          {current?.status === 'Present' && (
+                            <span className="inline-flex items-center gap-1 text-xs text-emerald-400 font-bold">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Present Recorded
+                            </span>
+                          )}
+                          {current?.status === 'Late' && (
+                            <span className="inline-flex items-center gap-1 text-xs text-amber-400 font-bold">
+                              <Clock className="w-3.5 h-3.5" /> Late Recorded
+                            </span>
+                          )}
+                          {current?.status === 'Absent' && (
+                            <span className="inline-flex items-center gap-1 text-xs text-rose-400 font-bold">
+                              <XCircle className="w-3.5 h-3.5" /> Absent Recorded
+                            </span>
+                          )}
+                          {!current?.status && (
+                            <span className="text-xs text-muted-foreground">Not Marked</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Desktop / Tablet Attendance Table (Hidden on Phones & Small Tablets < 768px) */}
+            <div className="hidden md:block border border-border/80 rounded-xl overflow-hidden bg-card">
               <div className="max-h-[460px] overflow-y-auto">
                 <table className="w-full text-xs text-left">
                   <thead className="bg-muted/70 text-muted-foreground uppercase text-[10px] tracking-wider sticky top-0 backdrop-blur z-10 border-b border-border/80">
@@ -417,24 +627,39 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                       <th className="py-3 px-4 text-center">
                         Attendance Status (Image 3: Present, Absent, Late)
                       </th>
-                      <th className="py-3 px-4">Remarks</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/50">
                     {filteredUsers.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                        <td colSpan={4} className="py-8 text-center text-muted-foreground">
                           No members matching filter.
                         </td>
                       </tr>
                     ) : (
                       filteredUsers.map(u => {
-                        const current = statusMap[u.id] || { status: 'Present', notes: '' };
+                        const current = statusMap[u.id];
+                        const isUnmarked = !current?.status;
 
                         return (
-                          <tr key={u.id} className="hover:bg-muted/25 transition-colors">
+                          <tr
+                            key={u.id}
+                            className={cn(
+                              'transition-colors',
+                              isUnmarked
+                                ? 'border-l-4 border-l-amber-500 bg-amber-500/10 hover:bg-amber-500/15'
+                                : 'hover:bg-muted/25'
+                            )}
+                          >
                             <td className="py-3 px-4">
-                              <div className="font-bold text-foreground text-xs uppercase">{u.name}</div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-foreground text-xs uppercase">{u.name}</span>
+                                {isUnmarked && (
+                                  <Badge className="bg-amber-500/30 text-amber-300 border border-amber-500/50 text-[9px] py-0 px-1.5 font-extrabold uppercase animate-pulse">
+                                    Not Marked
+                                  </Badge>
+                                )}
+                              </div>
                               <div className="text-[11px] font-mono text-[#D97736]">
                                 ITS: {u.itsNumber || '—'}
                               </div>
@@ -458,8 +683,8 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                                     onClick={() => handleStatusChange(u.id, 'Present')}
                                     className={cn(
                                       'px-3 py-1 rounded-md text-xs font-semibold border transition-all flex items-center gap-1 cursor-pointer',
-                                      current.status === 'Present'
-                                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                                      current?.status === 'Present'
+                                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm ring-1 ring-emerald-400'
                                         : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted/80'
                                     )}
                                     title="Mark Present"
@@ -472,8 +697,8 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                                     onClick={() => handleStatusChange(u.id, 'Late')}
                                     className={cn(
                                       'px-3 py-1 rounded-md text-xs font-semibold border transition-all flex items-center gap-1 cursor-pointer',
-                                      current.status === 'Late'
-                                        ? 'bg-amber-600 text-white border-amber-500 shadow-sm'
+                                      current?.status === 'Late'
+                                        ? 'bg-amber-600 text-white border-amber-500 shadow-sm ring-1 ring-amber-400'
                                         : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted/80'
                                     )}
                                     title="Mark Late"
@@ -486,8 +711,8 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                                     onClick={() => handleStatusChange(u.id, 'Absent')}
                                     className={cn(
                                       'px-3 py-1 rounded-md text-xs font-semibold border transition-all flex items-center gap-1 cursor-pointer',
-                                      current.status === 'Absent'
-                                        ? 'bg-rose-600 text-white border-rose-500 shadow-sm'
+                                      current?.status === 'Absent'
+                                        ? 'bg-rose-600 text-white border-rose-500 shadow-sm ring-1 ring-rose-400'
                                         : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted/80'
                                     )}
                                     title="Mark Absent"
@@ -498,35 +723,27 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                                 </div>
                               ) : (
                                 <div className="flex items-center justify-center">
-                                  {current.status === 'Present' && (
+                                  {current?.status === 'Present' && (
                                     <span className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-semibold">
                                       <CheckCircle2 className="w-3.5 h-3.5" /> Present
                                     </span>
                                   )}
-                                  {current.status === 'Late' && (
+                                  {current?.status === 'Late' && (
                                     <span className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-semibold">
                                       <Clock className="w-3.5 h-3.5" /> Late
                                     </span>
                                   )}
-                                  {current.status === 'Absent' && (
+                                  {current?.status === 'Absent' && (
                                     <span className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-semibold">
                                       <XCircle className="w-3.5 h-3.5" /> Absent
                                     </span>
                                   )}
+                                  {!current?.status && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-muted/40 text-muted-foreground text-xs font-medium">
+                                      Not Marked
+                                    </span>
+                                  )}
                                 </div>
-                              )}
-                            </td>
-                            <td className="py-3 px-4">
-                              {isAuthorizedMajor ? (
-                                <input
-                                  type="text"
-                                  value={current.notes}
-                                  onChange={e => handleNotesChange(u.id, e.target.value)}
-                                  placeholder="Optional remarks..."
-                                  className="w-full bg-transparent border-b border-border/60 text-xs px-1.5 py-0.5 focus:outline-none focus:border-[#D97736]"
-                                />
-                              ) : (
-                                <span className="text-xs text-muted-foreground">{current.notes || '—'}</span>
                               )}
                             </td>
                           </tr>

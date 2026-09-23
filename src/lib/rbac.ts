@@ -24,6 +24,7 @@ export const ALL_SECTIONS: InstrumentSection[] = [
 
 export const ALL_ROLES: Role[] = [
   'Overall Major',
+  'Major',
   'Treasurer',
   'Trumpet Major',
   'Saxophone Major',
@@ -33,14 +34,112 @@ export const ALL_ROLES: Role[] = [
   'SideDrum Major',
   'SideDrum/BaseDrum Major',
   'Instrument Maintainer',
+  'Trumpet Member',
+  'Euphonium Member',
+  'Saxophone Member',
+  'Ghugara Member',
+  'Trombone Member',
+  'Dish Member',
+  'Triangle Member',
+  'Khanjari Member',
+  'BaseDrum Member',
+  'SideDrum Member',
   'Band Member / Player',
 ];
+
+export const ALL_18_ROLES: Role[] = [
+  'SideDrum Major',
+  'Trumpet Member',
+  'Treasurer',
+  'Major',
+  'Euphonium Member',
+  'Saxophone Member',
+  'Ghugara Member',
+  'Trombone Member',
+  'Trombone Major',
+  'Dish Major',
+  'Instrument Maintainer',
+  'BaseDrum Member',
+  'Khanjari Member',
+  'Euphonium Major',
+  'Saxophone Major',
+  'Dish Member',
+  'Triangle Member',
+  'Trumpet Major',
+];
+
+export const JAMAAT_SECTORS = [
+  'BADRI SECTOR',
+  'QUTBI SECTOR',
+  'SHUJAI SECTOR',
+  'NAJMI SECTOR',
+  'EZZY SECTOR',
+  'SAIFEE BURHANI SECTOR',
+] as const;
+
+export const SECTION_MAJOR_ALLOWED_ROLES: Record<string, Role[]> = {
+  'Trumpet Major': ['Trumpet Member'],
+  'Saxophone Major': ['Saxophone Member'],
+  'Euphonium Major': ['Euphonium Member'],
+  'Trombone Major': ['Trombone Member'],
+  'Dish Major': ['Dish Member', 'Ghugara Member', 'Triangle Member', 'Khanjari Member'],
+  'SideDrum Major': ['SideDrum Member', 'BaseDrum Member'],
+  'SideDrum/BaseDrum Major': ['SideDrum Member', 'BaseDrum Member'],
+};
+
+export const ROLE_DEFAULT_SECTION_MAP: Partial<Record<Role, InstrumentSection>> = {
+  'Trumpet Major': 'Trumpet',
+  'Trumpet Member': 'Trumpet',
+  'Saxophone Major': 'Saxophone',
+  'Saxophone Member': 'Saxophone',
+  'Euphonium Major': 'Euphonium',
+  'Euphonium Member': 'Euphonium',
+  'Trombone Major': 'Trombone',
+  'Trombone Member': 'Trombone',
+  'Dish Major': 'Dish',
+  'Dish Member': 'Dish',
+  'Ghugara Member': 'Dish',
+  'Triangle Member': 'Dish',
+  'Khanjari Member': 'Dish',
+  'SideDrum Major': 'SideDrum',
+  'SideDrum Member': 'SideDrum',
+  'BaseDrum Member': 'SideDrum',
+};
+
+export function getSectionMajorRoles(role: Role): Role[] {
+  if (isOverallMajor(role)) {
+    return ALL_18_ROLES;
+  }
+  return SECTION_MAJOR_ALLOWED_ROLES[role] || [];
+}
+
+/**
+ * Autogenerates username and password based on FullName
+ * username format: <firstnameLastname@tsgband.com>
+ * password format: <firstnamelastname123>
+ */
+export function generateCredentialsFromFullName(fullName: string): { username: string; password: string } {
+  const clean = (fullName || '').trim().replace(/[^a-zA-Z0-9\s]/g, '');
+  const words = clean.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return { username: '', password: '' };
+
+  const firstName = words[0].toLowerCase();
+  let lastName = '';
+  if (words.length > 1) {
+    const rawLast = words[words.length - 1].toLowerCase();
+    lastName = rawLast.charAt(0).toUpperCase() + rawLast.slice(1);
+  }
+
+  const username = `${firstName}${lastName}@tsgband.com`;
+  const password = `${firstName}${lastName.toLowerCase()}123`;
+  return { username, password };
+}
 
 /**
  * Checks if the role is the Overall Major (Super Admin)
  */
 export function isOverallMajor(role: Role): boolean {
-  return role === 'Overall Major';
+  return role === 'Overall Major' || role === 'Major' || (role as string) === 'Overall Major / Band Commander';
 }
 
 /**
@@ -54,7 +153,7 @@ export function isTreasurer(role: Role): boolean {
  * Checks if the role is any Instrument Major
  */
 export function isInstrumentMajor(role: Role): boolean {
-  return role.endsWith('Major') && role !== 'Overall Major';
+  return role.endsWith('Major') && !isOverallMajor(role);
 }
 
 /**
@@ -68,19 +167,20 @@ export function getManagedSection(role: Role): InstrumentSection | null {
  * Permission: Can manage (add/edit/delete) users across ALL sections
  */
 export function canManageAllUsers(role: Role): boolean {
-  return role === 'Overall Major';
+  return isOverallMajor(role);
 }
 
 /**
  * Permission: Can manage players in a specific section
  */
 export function canManageSectionUsers(role: Role, targetSection: InstrumentSection, targetRole: Role): boolean {
-  if (role === 'Overall Major') return true;
+  if (isOverallMajor(role)) return true;
   
-  // Instrument Major can ONLY add/edit/delete 'Band Member / Player' in their own section
+  // Instrument Major can ONLY add/edit/delete allowed roles in their own section
   const managedSection = getManagedSection(role);
-  if (managedSection && managedSection === targetSection && targetRole === 'Band Member / Player') {
-    return true;
+  if (managedSection && managedSection === targetSection) {
+    const allowedRoles = SECTION_MAJOR_ALLOWED_ROLES[role] || [];
+    return allowedRoles.includes(targetRole) || targetRole === 'Band Member / Player';
   }
   
   return false;
@@ -90,40 +190,40 @@ export function canManageSectionUsers(role: Role, targetSection: InstrumentSecti
  * Permission: Full CRUD access to Lavajam contribution ledger and stats
  */
 export function canAccessFullFinancials(role: Role): boolean {
-  return role === 'Overall Major' || role === 'Treasurer';
+  return isOverallMajor(role) || role === 'Treasurer';
 }
 
 /**
  * Permission: Mark practice attendance
- * Exclusively restricted to Overall Major.
+ * Exclusively restricted to Overall Major and Majors.
  * All other members (including Section Majors) have view-only access.
  */
 export function canMarkAttendance(role: Role): boolean {
-  return role === 'Overall Major';
+  return isOverallMajor(role);
 }
 
 /**
  * Permission: View attendance of all members
- * Exclusively restricted to Overall Major.
+ * Exclusively restricted to Overall Major and Majors.
  * All other members (including Section Majors) can only view their own particular attendance record.
  */
 export function canViewAllAttendance(role: Role): boolean {
-  return role === 'Overall Major';
+  return isOverallMajor(role);
 }
 
 /**
  * Permission: View full band attendance analytics reports
- * Exclusively restricted to Overall Major.
+ * Exclusively restricted to Overall Major and Majors.
  */
 export function canViewAttendanceReports(role: Role): boolean {
-  return role === 'Overall Major';
+  return isOverallMajor(role);
 }
 
 /**
  * Permission: Can assign tunes to players
  */
 export function canAssignTunes(role: Role, targetSection: InstrumentSection): boolean {
-  if (role === 'Overall Major') return true;
+  if (isOverallMajor(role)) return true;
   const managedSection = getManagedSection(role);
   return managedSection === targetSection;
 }
@@ -132,12 +232,13 @@ export function canAssignTunes(role: Role, targetSection: InstrumentSection): bo
  * Permission: Can sync Google Drive
  */
 export function canSyncDrive(role: Role): boolean {
-  return role === 'Overall Major' || isInstrumentMajor(role);
+  return isOverallMajor(role) || isInstrumentMajor(role);
 }
 
 /**
  * Permission: Can import/export Excel rosters
  */
 export function canImportExportExcel(role: Role): boolean {
-  return role === 'Overall Major' || role === 'Treasurer' || isInstrumentMajor(role);
+  return isOverallMajor(role) || role === 'Treasurer' || isInstrumentMajor(role);
 }
+

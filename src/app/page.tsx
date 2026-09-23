@@ -28,11 +28,13 @@ import {
   Sparkles,
   RefreshCw,
 } from 'lucide-react';
+import { useToast } from '@/components/ui/toast';
 
 export default function LoginPage() {
   const router = useRouter();
   const dispatch = useDispatch();
   const currentUser = useSelector((state: RootState) => state.auth.user);
+  const { toast } = useToast();
 
   // Form states
   const [username, setUsername] = useState('');
@@ -102,12 +104,15 @@ export default function LoginPage() {
       dispatch(setActiveRole(res.user.role));
 
       setSuccessMessage(`Welcome back, ${res.user.name}! Redirecting to Dashboard...`);
+      toast.success('Authentication Successful', `Welcome back, ${res.user.name}!`);
       setTimeout(() => {
         router.push('/dashboard');
       }, 500);
     } catch (err: any) {
       console.error('Login failure:', err);
-      setErrorMessage(err?.data?.error || 'Authentication failed. Please verify your credentials.');
+      const errTxt = err?.data?.error || 'Authentication failed. Please verify your credentials.';
+      setErrorMessage(errTxt);
+      toast.error('Login Failed', errTxt);
     }
   };
 
@@ -118,6 +123,7 @@ export default function LoginPage() {
 
     if (!forgotUsername.trim()) {
       setForgotError('Please enter your username or registered email.');
+      toast.warning('Input Required', 'Please enter your username or registered email.');
       return;
     }
 
@@ -126,11 +132,16 @@ export default function LoginPage() {
       if (res.exists && res.user) {
         setVerifiedUser(res.user);
         setForgotStep(2);
+        toast.info('Account Verified', `Welcome ${res.user.name}. Please enter your new password.`);
       } else {
-        setForgotError('Username was not found in Member Details sheet.');
+        const notFoundMsg = 'Username was not found in Member Details sheet.';
+        setForgotError(notFoundMsg);
+        toast.error('User Not Found', notFoundMsg);
       }
     } catch (err: any) {
-      setForgotError(err?.data?.error || `Username '${forgotUsername}' was not found in the Member Details sheet.`);
+      const notFoundMsg = err?.data?.error || `Username '${forgotUsername}' was not found in the Member Details sheet.`;
+      setForgotError(notFoundMsg);
+      toast.error('Verification Error', notFoundMsg);
     }
   };
 
@@ -140,11 +151,15 @@ export default function LoginPage() {
     setForgotError(null);
 
     if (!newPassword || newPassword.length < 4) {
-      setForgotError('New password must be at least 4 characters long.');
+      const lenMsg = 'New password must be at least 4 characters long.';
+      setForgotError(lenMsg);
+      toast.warning('Password Too Short', lenMsg);
       return;
     }
     if (newPassword !== confirmPassword) {
-      setForgotError('Passwords do not match. Please re-enter.');
+      const matchMsg = 'Passwords do not match. Please re-enter.';
+      setForgotError(matchMsg);
+      toast.warning('Password Mismatch', matchMsg);
       return;
     }
 
@@ -154,14 +169,18 @@ export default function LoginPage() {
         newPassword,
       }).unwrap();
 
-      setForgotSuccess(res.message || 'Password successfully updated in Member Details sheet.');
+      const successMsg = res.message || 'Password successfully updated in Member Details sheet.';
+      setForgotSuccess(successMsg);
+      toast.success('Password Updated & Synced', successMsg);
       setForgotStep(3);
 
       // Pre-fill login form with new password
       setUsername(verifiedUser?.username || forgotUsername.trim());
       setPassword(newPassword);
     } catch (err: any) {
-      setForgotError(err?.data?.error || 'Failed to update password. Please try again.');
+      const failMsg = err?.data?.error || 'Failed to update password. Please try again.';
+      setForgotError(failMsg);
+      toast.error('Reset Failed', failMsg);
     }
   };
 

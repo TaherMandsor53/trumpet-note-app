@@ -1,14 +1,25 @@
 export type Role =
-  | 'Overall Major'
-  | 'Treasurer'
-  | 'Trumpet Major'
-  | 'Saxophone Major'
-  | 'Euphonium Major'
-  | 'Dish Major'
   | 'SideDrum Major'
-  | 'SideDrum/BaseDrum Major'
+  | 'Trumpet Member'
+  | 'Treasurer'
+  | 'Major'
+  | 'Euphonium Member'
+  | 'Saxophone Member'
+  | 'Ghugara Member'
+  | 'Trombone Member'
   | 'Trombone Major'
+  | 'Dish Major'
   | 'Instrument Maintainer'
+  | 'BaseDrum Member'
+  | 'Khanjari Member'
+  | 'Euphonium Major'
+  | 'Saxophone Major'
+  | 'Dish Member'
+  | 'Triangle Member'
+  | 'Trumpet Major'
+  | 'Overall Major'
+  | 'SideDrum Member'
+  | 'SideDrum/BaseDrum Major'
   | 'Band Member / Player';
 
 export type InstrumentSection =
@@ -17,7 +28,6 @@ export type InstrumentSection =
   | 'Euphonium'
   | 'Dish'
   | 'SideDrum'
-  | 'SideDrum/BaseDrum'
   | 'Trombone';
 
 export interface User {

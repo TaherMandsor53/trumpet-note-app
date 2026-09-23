@@ -16,9 +16,11 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { InstrumentSection, Role } from '@/types/band';
+import { InstrumentSection, Role, User } from '@/types/band';
 import { ALL_SECTIONS, ALL_ROLES } from '@/lib/rbac';
 import { formatDate, getDaysRemainingForNewBadge } from '@/lib/utils';
+import { MemberModal } from '@/components/members/MemberModal';
+import { useToast } from '@/components/ui/toast';
 import {
   Crown,
   Users,
@@ -26,6 +28,7 @@ import {
   Music,
   Plus,
   Trash2,
+  Pencil,
   FileSpreadsheet,
   CloudLightning,
   Sparkles,
@@ -42,15 +45,8 @@ export function ExecutiveDashboard() {
   const [deleteUser] = useDeleteUserMutation();
 
   const [activeTab, setActiveTab] = useState<'attendance' | 'members' | 'tunes'>('attendance');
-  const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
-
-  // User form
-  const [userName, setUserName] = useState('');
-  const [userEmail, setUserEmail] = useState('');
-  const [userRole, setUserRole] = useState<Role>('Band Member / Player');
-  const [userSection, setUserSection] = useState<InstrumentSection>('Trumpet');
-  const [userPhone, setUserPhone] = useState('');
-  const [userRank, setUserRank] = useState('');
+  const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
+  const [selectedMemberForEdit, setSelectedMemberForEdit] = useState<User | null>(null);
 
   const [searchMember, setSearchMember] = useState('');
   const [sectionFilter, setSectionFilter] = useState('All');
@@ -61,40 +57,34 @@ export function ExecutiveDashboard() {
   const filteredUsers = users.filter(u => {
     const matchSearch =
       u.name.toLowerCase().includes(searchMember.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchMember.toLowerCase());
+      u.email.toLowerCase().includes(searchMember.toLowerCase()) ||
+      (u.itsNumber && u.itsNumber.includes(searchMember));
     const matchSection = sectionFilter === 'All' || u.section === sectionFilter;
     return matchSearch && matchSection;
   });
 
-  const handleAddUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!userName || !userEmail) return;
+  const { toast } = useToast();
 
-    try {
-      await createUser({
-        name: userName,
-        email: userEmail,
-        role: userRole,
-        section: userSection,
-        phone: userPhone,
-        rank: userRank || 'Scout Musician',
-      }).unwrap();
-
-      setIsAddUserModalOpen(false);
-      setUserName('');
-      setUserEmail('');
-      setUserPhone('');
-      setUserRank('');
-      refetchUsers();
-    } catch (err: any) {
-      alert(err?.data?.error || 'Failed to add user');
-    }
+  const handleEditUser = (user: User) => {
+    setSelectedMemberForEdit(user);
+    setIsMemberModalOpen(true);
   };
 
   const handleDeleteUser = async (id: string, name: string) => {
-    if (confirm(`Are you sure you want to remove ${name} from the band?`)) {
-      await deleteUser(id);
-      refetchUsers();
+    if (confirm(`Are you sure you want to remove ${name} from the band roster? This will sync to Google Sheets.`)) {
+      try {
+        await deleteUser(id).unwrap();
+        toast.success(
+          'Member Removed Successfully',
+          `${name} has been removed from the official band directory and synced with Google Sheets & local Excel.`
+        );
+        refetchUsers();
+      } catch (err: any) {
+        toast.error(
+          'Member Removal Failed',
+          err?.data?.error || err?.message || `Failed to remove ${name}.`
+        );
+      }
     }
   };
 
@@ -119,7 +109,10 @@ export function ExecutiveDashboard() {
             <Button
               variant="gold"
               size="sm"
-              onClick={() => setIsAddUserModalOpen(true)}
+              onClick={() => {
+                setSelectedMemberForEdit(null);
+                setIsMemberModalOpen(true);
+              }}
               className="text-xs gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" /> Add New Member
@@ -235,7 +228,75 @@ export function ExecutiveDashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            {/* Mobile Member Cards (Visible on Phones & Tablets < 768px) */}
+            <div className="block md:hidden space-y-2.5">
+              {filteredUsers.length === 0 ? (
+                <div className="py-8 text-center text-muted-foreground text-xs p-4 rounded-xl border border-dashed">
+                  No members matching search or section filter.
+                </div>
+              ) : (
+                filteredUsers.map(u => (
+                  <div
+                    key={u.id}
+                    className="p-3.5 rounded-xl border border-border/70 bg-card/80 space-y-2"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-0.5 min-w-0 flex-1">
+                        <div className="font-bold text-sm text-foreground break-words">{u.name}</div>
+                        <div className="text-xs font-mono text-muted-foreground break-words">{u.email}</div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEditUser(u)}
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-amber-400 bg-muted/30"
+                          title="Edit Member"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        {u.role !== 'Overall Major' && u.role !== 'Major' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteUser(u.id, u.name)}
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive bg-muted/30"
+                            title="Remove Member"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-border/50 text-[11px]">
+                      <Badge variant="outline" className="text-[10px] py-0">
+                        {u.section}
+                      </Badge>
+                      <Badge
+                        variant={u.role === 'Overall Major' || u.role === 'Major' ? 'gold' : u.role === 'Treasurer' ? 'emerald' : 'secondary'}
+                        className="text-[10px] py-0"
+                      >
+                        {u.role}
+                      </Badge>
+                      {u.itsNumber && (
+                        <span className="text-muted-foreground font-mono text-[10px]">
+                          ITS: {u.itsNumber}
+                        </span>
+                      )}
+                      {u.rank && (
+                        <span className="text-muted-foreground text-[10px]">
+                          • {u.rank}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Desktop / Tablet Table (Hidden on Phones) */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-xs text-left">
                 <thead className="bg-muted/60 text-muted-foreground uppercase text-[10px] tracking-wider border-b">
                   <tr>
@@ -257,7 +318,7 @@ export function ExecutiveDashboard() {
                       </td>
                       <td className="py-2.5 px-3">
                         <Badge
-                          variant={u.role === 'Overall Major' ? 'gold' : u.role === 'Treasurer' ? 'emerald' : 'secondary'}
+                          variant={u.role === 'Overall Major' || u.role === 'Major' ? 'gold' : u.role === 'Treasurer' ? 'emerald' : 'secondary'}
                           className="text-[10px]"
                         >
                           {u.role}
@@ -265,17 +326,28 @@ export function ExecutiveDashboard() {
                       </td>
                       <td className="py-2.5 px-3 text-muted-foreground">{u.rank || '—'}</td>
                       <td className="py-2.5 px-3 text-right">
-                        {u.role !== 'Overall Major' && (
+                        <div className="flex items-center justify-end gap-1">
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDeleteUser(u.id, u.name)}
-                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                            title="Remove Member"
+                            onClick={() => handleEditUser(u)}
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-amber-400"
+                            title="Edit Member"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Pencil className="w-3.5 h-3.5" />
                           </Button>
-                        )}
+                          {u.role !== 'Overall Major' && u.role !== 'Major' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteUser(u.id, u.name)}
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                              title="Remove Member"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -348,92 +420,17 @@ export function ExecutiveDashboard() {
         </Card>
       )}
 
-      {/* Add User Dialog */}
-      <Dialog open={isAddUserModalOpen} onOpenChange={setIsAddUserModalOpen}>
-        <DialogHeader>
-          <DialogTitle>Add Band Member / Officer</DialogTitle>
-          <DialogDescription>
-            Register a new officer or musician into the official band directory.
-          </DialogDescription>
-        </DialogHeader>
-
-        <form onSubmit={handleAddUser} className="space-y-3 text-xs">
-          <div>
-            <label className="font-medium text-muted-foreground mb-1 block">Full Name</label>
-            <Input
-              value={userName}
-              onChange={e => setUserName(e.target.value)}
-              placeholder="e.g. Murtaza Bhai"
-              required
-            />
-          </div>
-          <div>
-            <label className="font-medium text-muted-foreground mb-1 block">Email Address</label>
-            <Input
-              type="email"
-              value={userEmail}
-              onChange={e => setUserEmail(e.target.value)}
-              placeholder="murtaza@taheriscout.org"
-              required
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="font-medium text-muted-foreground mb-1 block">Role</label>
-              <Select
-                value={userRole}
-                onChange={e => setUserRole(e.target.value as any)}
-              >
-                {ALL_ROLES.map(r => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <label className="font-medium text-muted-foreground mb-1 block">Instrument Section</label>
-              <Select
-                value={userSection}
-                onChange={e => setUserSection(e.target.value as any)}
-              >
-                {ALL_SECTIONS.map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="font-medium text-muted-foreground mb-1 block">Phone Number</label>
-              <Input
-                value={userPhone}
-                onChange={e => setUserPhone(e.target.value)}
-                placeholder="+91 98200..."
-              />
-            </div>
-            <div>
-              <label className="font-medium text-muted-foreground mb-1 block">Band Rank</label>
-              <Input
-                value={userRank}
-                onChange={e => setUserRank(e.target.value)}
-                placeholder="e.g. 1st Trumpeter"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsAddUserModalOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="gold" disabled={isCreatingUser}>
-              {isCreatingUser ? 'Saving...' : 'Register Member'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </Dialog>
+      {/* Reusable Member Management Modal (Add & Edit) */}
+      <MemberModal
+        isOpen={isMemberModalOpen}
+        onClose={() => {
+          setIsMemberModalOpen(false);
+          setSelectedMemberForEdit(null);
+        }}
+        onSuccess={() => refetchUsers()}
+        memberToEdit={selectedMemberForEdit}
+        userRole="Overall Major"
+      />
     </div>
   );
 }

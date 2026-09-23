@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     const envPass = (process.env.GOOGLE_ACCOUNT_PASSWORD || '786110515253').trim();
 
     if (!user && identifier.toLowerCase() === envEmail) {
-      user = getUsers().find(u => u.role === 'Overall Major') || getUsers()[0] || null;
+      user = getUsers().find(u => u.role === 'Overall Major' || u.role === 'Major') || getUsers()[0] || null;
     }
 
     // 4. If account not found in Member Details sheet, return appropriate error

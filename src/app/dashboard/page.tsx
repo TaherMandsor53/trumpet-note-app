@@ -34,7 +34,7 @@ import {
   getManagedSection,
   canSyncDrive,
 } from '@/lib/rbac';
-import { InstrumentSection } from '@/types/band';
+import { InstrumentSection, Role } from '@/types/band';
 import {
   Crown,
   Coins,
@@ -85,23 +85,25 @@ export default function DashboardPage() {
 
   // Tab permission validator for strict role separation
   const isTabAllowedForRole = (tab: string, role: string) => {
-    if (role === 'Overall Major') return true;
+    const r = role as Role;
+    if (isOverallMajor(r)) return true;
     if (role === 'Treasurer') {
       return ['financials', 'attendance', 'org-chart', 'transposer', 'videos'].includes(tab);
     }
-    if (isInstrumentMajor(role)) {
+    if (isInstrumentMajor(r)) {
       return ['section', 'attendance', 'org-chart', 'transposer', 'videos'].includes(tab);
     }
-    if (role === 'Band Member / Player' || role === 'Instrument Maintainer') {
+    if (role === 'Band Member / Player' || role.endsWith('Member') || role === 'Instrument Maintainer') {
       return ['member-portal', 'attendance', 'org-chart', 'transposer', 'videos'].includes(tab);
     }
     return false;
   };
 
   const getDefaultTabForRole = (role: string) => {
+    const r = role as Role;
     if (role === 'Treasurer') return 'financials';
-    if (isInstrumentMajor(role)) return 'section';
-    if (role === 'Band Member / Player' || role === 'Instrument Maintainer') return 'member-portal';
+    if (isInstrumentMajor(r)) return 'section';
+    if (role === 'Band Member / Player' || role.endsWith('Member') || role === 'Instrument Maintainer') return 'member-portal';
     return 'dashboard';
   };
 
@@ -354,15 +356,15 @@ export default function DashboardPage() {
   const hero = getHeroContent();
 
   return (
-    <div className="flex flex-col min-h-screen bg-background text-foreground">
+    <div className="flex flex-col min-h-screen bg-background text-foreground w-full max-w-full overflow-x-hidden">
       {/* Top Notification Announcement Bar */}
-      <div className="w-full bg-[#1A0C06] border-b border-amber-900/30 text-amber-200/90 text-[11px] py-1.5 px-4 text-center font-medium tracking-wide flex items-center justify-center gap-2">
-        <span className="inline-block w-2 h-2 rounded-full bg-[#D97736] animate-ping" />
-        <span>Taheri Scout Band • Milad Mubarak Madeh Repertoire, Hazri &amp; Lavajam Portal Synchronized</span>
+      <div className="w-full max-w-full bg-[#1A0C06] border-b border-amber-900/30 text-amber-200/90 text-[10px] sm:text-[11px] py-1.5 px-3 sm:px-4 text-center font-medium tracking-wide flex items-center justify-center gap-1.5 sm:gap-2 overflow-hidden">
+        <span className="inline-block w-2 h-2 rounded-full bg-[#D97736] animate-ping shrink-0" />
+        <span className="truncate">Taheri Scout Band • Milad Mubarak Madeh Repertoire, Hazri &amp; Lavajam Portal Synchronized</span>
         {canSyncDrive(effectiveRole) && (
           <button
             onClick={() => setIsDriveModalOpen(true)}
-            className="hidden sm:inline-flex items-center gap-1 font-bold text-[#D97736] hover:underline ml-2"
+            className="hidden sm:inline-flex items-center gap-1 font-bold text-[#D97736] hover:underline ml-2 shrink-0"
           >
             <span>Sync Scores</span>
             <ArrowRight className="w-3 h-3" />
@@ -460,7 +462,7 @@ export default function DashboardPage() {
       {/* ========================================================
           MAIN WORKSPACE NAVIGATION BAR (Strictly Role Governed)
          ======================================================== */}
-      <nav className="border-b bg-card/70 backdrop-blur-xl sticky top-28 z-30 px-4">
+      <nav className="border-b bg-card/70 backdrop-blur-xl sticky top-16 sm:top-[74px] z-30 px-2.5 sm:px-4 w-full max-w-full overflow-hidden">
         <div className="max-w-7xl mx-auto flex items-center justify-between overflow-x-auto no-scrollbar gap-2 py-2.5">
           <div className="flex items-center gap-1.5 shrink-0">
             {/* Overall Major: Executive Command */}

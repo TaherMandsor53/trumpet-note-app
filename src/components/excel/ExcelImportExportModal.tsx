@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { useToast } from '@/components/ui/toast';
 import { FileSpreadsheet, Upload, Download, CheckCircle2, AlertCircle } from 'lucide-react';
 
 interface Props {
@@ -12,6 +14,7 @@ interface Props {
 }
 
 export function ExcelImportExportModal({ open, onOpenChange, onSuccess }: Props) {
+  const { toast } = useToast();
   const [fileType, setFileType] = useState<'members' | 'tunes'>('members');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -36,17 +39,23 @@ export function ExcelImportExportModal({ open, onOpenChange, onSuccess }: Props)
       const data = await res.json();
 
       if (res.ok) {
+        const successMsg = data.message || `Successfully processed ${data.importedCount} rows!`;
         setStatus({
-          text: data.message || `Successfully processed ${data.importedCount} rows!`,
+          text: successMsg,
           type: 'success',
         });
+        toast.success('Excel Import Successful', successMsg);
         setSelectedFile(null);
         if (onSuccess) onSuccess();
       } else {
-        setStatus({ text: data.error || 'Failed to process file', type: 'error' });
+        const errorMsg = data.error || 'Failed to process file';
+        setStatus({ text: errorMsg, type: 'error' });
+        toast.error('Excel Import Failed', errorMsg);
       }
-    } catch (err) {
-      setStatus({ text: 'Network or server error during upload.', type: 'error' });
+    } catch (err: any) {
+      const networkMsg = err?.message || 'Network or server error during upload.';
+      setStatus({ text: networkMsg, type: 'error' });
+      toast.error('Upload Error', networkMsg);
     } finally {
       setIsUploading(false);
     }
@@ -108,15 +117,13 @@ export function ExcelImportExportModal({ open, onOpenChange, onSuccess }: Props)
         </div>
 
         {status && (
-          <div
-            className={`p-3 rounded-md text-xs font-medium border ${
-              status.type === 'success'
-                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                : 'bg-destructive/15 border-destructive/30 text-destructive'
-            }`}
+          <Alert
+            variant={status.type === 'success' ? 'success' : 'destructive'}
+            onDismiss={() => setStatus(null)}
           >
-            {status.text}
-          </div>
+            <AlertTitle>{status.type === 'success' ? 'Import Complete' : 'Import Error'}</AlertTitle>
+            <AlertDescription>{status.text}</AlertDescription>
+          </Alert>
         )}
 
         <form onSubmit={handleUpload} className="space-y-4">

@@ -8,7 +8,8 @@ import { setTheme } from '@/store/themeSlice';
 import { useRouter } from 'next/navigation';
 import { logout } from '@/store/authSlice';
 import { useLogoutUserMutation } from '@/store/api/bandApi';
-import { isInstrumentMajor } from '@/lib/rbac';
+import { isInstrumentMajor, isOverallMajor } from '@/lib/rbac';
+import { Role } from '@/types/band';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SoundwaveAnimation } from '@/components/ui/musical-icons';
@@ -28,14 +29,14 @@ export function Navbar({ activeTab, onTabChange }: { activeTab: string; onTabCha
   };
 
   const getRoleBadgeVariant = (role: string) => {
-    if (role === 'Overall Major') return 'gold';
+    if (role === 'Overall Major' || role === 'Major') return 'gold';
     if (role === 'Treasurer') return 'emerald';
     if (role.endsWith('Major')) return 'default';
     return 'secondary';
   };
 
   const roleName = currentUser?.role || activeRole;
-  const isOverallMajor = roleName === 'Overall Major';
+  const isOverallMajorRole = roleName === 'Overall Major' || roleName === 'Major' || isInstrumentMajor(roleName as Role);
   const isTreasurer = roleName === 'Treasurer';
 
   const handleBrandClick = () => {
@@ -49,8 +50,8 @@ export function Navbar({ activeTab, onTabChange }: { activeTab: string; onTabCha
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16 gap-4">
         {/* Brand */}
-        <div className="flex items-center gap-3 cursor-pointer" onClick={handleBrandClick}>
-          <div className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-amber-400/60 shadow-md">
+        <div className="flex items-center gap-2.5 sm:gap-3 cursor-pointer min-w-0" onClick={handleBrandClick}>
+          <div className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden border-2 border-amber-400/60 shadow-md shrink-0">
             <Image
               src="/assets/images/TaheriScoutImg.png"
               alt="Taheri Scout Band Crest"
@@ -60,35 +61,45 @@ export function Navbar({ activeTab, onTabChange }: { activeTab: string; onTabCha
               priority
             />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-serif font-black tracking-wide text-lg text-foreground">TAHERI SCOUT BAND</span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="font-serif font-black tracking-wide text-sm sm:text-lg text-foreground truncate">
+                TAHERI SCOUT BAND
+              </span>
               <SoundwaveAnimation />
             </div>
-            <p className="text-[11px] text-muted-foreground uppercase tracking-widest font-mono">Religious Band Khidmat • Est. 1988</p>
+            <p className="text-[9px] sm:text-[11px] text-muted-foreground uppercase tracking-widest font-mono truncate">
+              Religious Band Khidmat • Est. 1988
+            </p>
           </div>
         </div>
 
         {/* Right Section: Active User & Theme Switcher */}
-        <div className="flex items-center gap-3">
-          {/* Active Role Indicator */}
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+          {/* Active Role Indicator: Desktop / Tablet */}
           <div className="hidden sm:flex flex-col items-end justify-center">
             <span className="text-xs font-bold text-foreground tracking-tight leading-normal max-w-[220px] truncate text-right">
               {currentUser?.name || 'Active Session'}
             </span>
-            <div className="flex items-center justify-end gap-1.5 mt-1.5">
+            <div className="flex items-center justify-end gap-1.5 mt-1">
               <Badge
                 variant={getRoleBadgeVariant(roleName) as any}
                 className="text-[10px] py-0 px-2 font-semibold shadow-xs"
               >
                 {roleName}
               </Badge>
-              {currentUser?.section && !isOverallMajor && !isTreasurer && (
-                <span className="text-[10px] text-muted-foreground font-medium">
-                  • {currentUser.section}
-                </span>
-              )}
             </div>
+          </div>
+
+          {/* Active Role Indicator: Mobile Compact Badge */}
+          <div className="flex sm:hidden items-center">
+            <Badge
+              variant={getRoleBadgeVariant(roleName) as any}
+              className="text-[9px] py-0.5 px-1.5 font-bold uppercase tracking-wider shadow-xs"
+              title={`${currentUser?.name || 'Active'}: ${roleName}`}
+            >
+              {roleName}
+            </Badge>
           </div>
 
           {/* Divider */}

@@ -9,9 +9,10 @@ interface ThemedDatePickerProps {
   onChange: (value: string) => void;
   className?: string;
   disabled?: boolean;
+  maxDate?: string; // YYYY-MM-DD to disable future dates
 }
 
-export function ThemedDatePicker({ value, onChange, className, disabled }: ThemedDatePickerProps) {
+export function ThemedDatePicker({ value, onChange, className, disabled, maxDate }: ThemedDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -67,8 +68,18 @@ export function ThemedDatePicker({ value, onChange, className, disabled }: Theme
     }
   };
 
+  const canGoNextMonth = (() => {
+    if (!maxDate) return true;
+    const parts = maxDate.split('-');
+    if (parts.length < 2) return true;
+    const maxY = parseInt(parts[0], 10);
+    const maxM = parseInt(parts[1], 10) - 1;
+    return viewYear < maxY || (viewYear === maxY && viewMonth < maxM);
+  })();
+
   const handleNextMonth = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!canGoNextMonth) return;
     if (viewMonth === 11) {
       setViewMonth(0);
       setViewYear(y => y + 1);
@@ -81,6 +92,7 @@ export function ThemedDatePicker({ value, onChange, className, disabled }: Theme
     const mm = String(viewMonth + 1).padStart(2, '0');
     const dd = String(day).padStart(2, '0');
     const isoString = `${viewYear}-${mm}-${dd}`;
+    if (maxDate && isoString > maxDate) return;
     onChange(isoString);
     setIsOpen(false);
   };
@@ -170,9 +182,15 @@ export function ThemedDatePicker({ value, onChange, className, disabled }: Theme
 
             <button
               type="button"
+              disabled={!canGoNextMonth}
               onClick={handleNextMonth}
-              className="p-1.5 rounded-lg hover:bg-amber-500/20 text-amber-300 hover:text-amber-100 transition-colors"
-              title="Next Month"
+              className={cn(
+                'p-1.5 rounded-lg text-amber-300 transition-colors',
+                canGoNextMonth
+                  ? 'hover:bg-amber-500/20 hover:text-amber-100 cursor-pointer'
+                  : 'opacity-30 cursor-not-allowed text-muted-foreground/40'
+              )}
+              title={canGoNextMonth ? 'Next Month' : 'Future dates disabled'}
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -214,20 +232,25 @@ export function ThemedDatePicker({ value, onChange, className, disabled }: Theme
               const dayIso = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
               const isSelected = value === dayIso;
               const isToday = dayIso === todayStr;
+              const isFuture = maxDate ? dayIso > maxDate : false;
 
               return (
                 <button
                   key={day}
                   type="button"
-                  onClick={() => handleSelectDay(day)}
+                  disabled={isFuture}
+                  onClick={() => !isFuture && handleSelectDay(day)}
                   className={cn(
-                    'h-8 w-full rounded-lg text-xs font-mono font-medium transition-all flex items-center justify-center relative cursor-pointer',
-                    isSelected
-                      ? 'bg-[#D97736] text-white font-bold shadow-warm-glow ring-2 ring-amber-400'
+                    'h-8 w-full rounded-lg text-xs font-mono font-medium transition-all flex items-center justify-center relative',
+                    isFuture
+                      ? 'opacity-25 cursor-not-allowed text-muted-foreground/30 pointer-events-none'
+                      : isSelected
+                      ? 'bg-[#D97736] text-white font-bold shadow-warm-glow ring-2 ring-amber-400 cursor-pointer'
                       : isToday
-                      ? 'border border-amber-500/60 text-amber-300 hover:bg-amber-500/20'
-                      : 'hover:bg-amber-500/15 hover:text-amber-200 text-foreground/90'
+                      ? 'border border-amber-500/60 text-amber-300 hover:bg-amber-500/20 cursor-pointer'
+                      : 'hover:bg-amber-500/15 hover:text-amber-200 text-foreground/90 cursor-pointer'
                   )}
+                  title={isFuture ? 'Future date disabled' : undefined}
                 >
                   {day}
                   {isToday && !isSelected && (

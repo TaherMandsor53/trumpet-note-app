@@ -36,7 +36,15 @@ function getDatabase() {
     };
   } else {
     // Ensure all INITIAL_USERS from Member Details sheet are present and up-to-date in memory
-    const existing = globalThis.__bandDatabase.users;
+    let existing = globalThis.__bandDatabase.users.filter(u => {
+      const its = String(u.itsNumber || '').trim();
+      const name = String(u.name || '').trim().toLowerCase();
+      // Filter out test and placeholder users
+      if (name === 'test' || name === 'test1' || name === 'band member') return false;
+      if (its === '89890909' || its === '7878676789' || its === '44044989') return false;
+      return true;
+    });
+
     for (const initUser of INITIAL_USERS) {
       const idx = existing.findIndex(
         u =>
@@ -60,10 +68,24 @@ function getDatabase() {
       }
     }
 
-    // Purge any old mock users or non-sheet users
-    globalThis.__bandDatabase.users = existing.filter(u =>
-      INITIAL_USERS.some(init => init.id === u.id || init.itsNumber === u.itsNumber)
-    );
+    // Keep clean list of users in memory
+    globalThis.__bandDatabase.users = existing;
+
+    // Prune test/unnecessary records from attendance sessions
+    if (globalThis.__bandDatabase.attendance) {
+      const validUserIds = new Set(existing.map(u => u.id));
+      const validIts = new Set(existing.map(u => String(u.itsNumber || '').trim()).filter(Boolean));
+      globalThis.__bandDatabase.attendance = globalThis.__bandDatabase.attendance.map(sess => ({
+        ...sess,
+        records: sess.records.filter(r => {
+          const recName = String(r.userName || '').trim().toLowerCase();
+          const recIts = String(r.userId || '').replace(/^sheet-/, '').trim();
+          if (recName === 'test' || recName === 'test1' || recName === 'band member') return false;
+          if (recIts === '89890909' || recIts === '7878676789' || recIts === '44044989') return false;
+          return validUserIds.has(r.userId) || validIts.has(recIts);
+        }),
+      }));
+    }
   }
   return globalThis.__bandDatabase;
 }
@@ -143,14 +165,17 @@ export function updateUserPassword(identifier: string, newPassword: string): boo
     ...db.users[index],
     password: newPassword,
   };
+  persistUsersToDisk(db.users);
   return true;
 }
 
 export function syncUsersWithSheet(sheetUsers: User[]): void {
   const db = getDatabase();
   for (const sUser of sheetUsers) {
+    if (!sUser.itsNumber && (!sUser.name || sUser.name === 'Band Member')) continue;
     const existingIndex = db.users.findIndex(
       u =>
+        (sUser.itsNumber && u.itsNumber && u.itsNumber === sUser.itsNumber) ||
         (sUser.username && u.username?.toLowerCase() === sUser.username.toLowerCase()) ||
         (sUser.email && u.email.toLowerCase() === sUser.email.toLowerCase())
     );
@@ -160,33 +185,100 @@ export function syncUsersWithSheet(sheetUsers: User[]): void {
       db.users.push(sUser);
     }
   }
+  persistUsersToDisk(db.users);
 }
 
-export function addUser(user: Omit<User, 'id'>): User {
+function persistUsersToDisk(users: User[]) {
+  if (typeof window === 'undefined') {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const fs = require('fs');
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const path = require('path');
+      const jsonPath = path.join(process.cwd(), 'src', 'data', 'members-40.json');
+      if (fs.existsSync(jsonPath)) {
+        fs.writeFileSync(jsonPath, JSON.stringify(users, null, 2), 'utf-8');
+      }
+    } catch (e) {
+      console.warn('Could not persist users to members-40.json:', e);
+    }
+  }
+}
+
+export function addUser(user: Omit<User, 'id'> & { id?: string }): User {
   const db = getDatabase();
+  const id = user.id || (user.itsNumber ? `sheet-${user.itsNumber}` : `user-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`);
   const newUser: User = {
     ...user,
-    id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    id,
     joinedDate: user.joinedDate || new Date().toISOString().split('T')[0],
     active: true,
   };
   db.users.push(newUser);
+  persistUsersToDisk(db.users);
   return newUser;
 }
 
-export function updateUser(id: string, updates: Partial<User>): User | null {
+export function updateUser(
+  id: string,
+  updates: Partial<User>
+): { updatedUser: User | null; previousMajorUser: User | null } {
   const db = getDatabase();
   const index = db.users.findIndex(u => u.id === id);
-  if (index === -1) return null;
+  if (index === -1) return { updatedUser: null, previousMajorUser: null };
+
+  const targetRole = updates.role;
+  let previousMajorUser: User | null = null;
+
+  // If promoting someone to a Section Major, reassign previous Section Major in that section to Section Member
+  if (targetRole && targetRole.endsWith('Major') && targetRole !== 'Major' && targetRole !== 'Overall Major') {
+    const targetSection = updates.section || db.users[index].section;
+    const prevMajorIndex = db.users.findIndex(
+      u =>
+        u.id !== id &&
+        (u.role === targetRole ||
+          (targetSection &&
+            u.section === targetSection &&
+            u.role.endsWith('Major') &&
+            u.role !== 'Major' &&
+            u.role !== 'Overall Major'))
+    );
+
+    if (prevMajorIndex !== -1) {
+      const prevSection = db.users[prevMajorIndex].section;
+      const defaultMemberRole = (
+        prevSection === 'Trumpet' ? 'Trumpet Member' :
+        prevSection === 'Saxophone' ? 'Saxophone Member' :
+        prevSection === 'Euphonium' ? 'Euphonium Member' :
+        prevSection === 'Trombone' ? 'Trombone Member' :
+        prevSection === 'Dish' ? 'Dish Member' :
+        prevSection === 'SideDrum' ? 'SideDrum Member' :
+        'Trumpet Member'
+      ) as Role;
+
+      db.users[prevMajorIndex] = {
+        ...db.users[prevMajorIndex],
+        role: defaultMemberRole,
+        rank: `${defaultMemberRole}`,
+      };
+      previousMajorUser = db.users[prevMajorIndex];
+    }
+  }
+
   db.users[index] = { ...db.users[index], ...updates };
-  return db.users[index];
+  persistUsersToDisk(db.users);
+  return { updatedUser: db.users[index], previousMajorUser };
 }
 
 export function deleteUser(id: string): boolean {
   const db = getDatabase();
   const initialLength = db.users.length;
   db.users = db.users.filter(u => u.id !== id);
-  return db.users.length < initialLength;
+  const deleted = db.users.length < initialLength;
+  if (deleted) {
+    persistUsersToDisk(db.users);
+  }
+  return deleted;
 }
 
 // ----------------- FINANCIALS (LAVAJAM) -----------------
@@ -232,11 +324,16 @@ export function getAttendanceSessions(): AttendanceSession[] {
 
 export function addAttendanceSession(session: Omit<AttendanceSession, 'id'>): AttendanceSession {
   const db = getDatabase();
+  const existingIdx = db.attendance.findIndex(s => s.date === session.date);
   const newSession: AttendanceSession = {
     ...session,
-    id: `att-${Date.now()}`,
+    id: existingIdx >= 0 ? db.attendance[existingIdx].id : `att-${Date.now()}`,
   };
-  db.attendance.unshift(newSession);
+  if (existingIdx >= 0) {
+    db.attendance[existingIdx] = newSession;
+  } else {
+    db.attendance.unshift(newSession);
+  }
   return newSession;
 }
 
@@ -265,7 +362,7 @@ export function getAttendanceMetrics(): AttendanceReportMetrics {
       else if (r.status === 'Late') totalLate++;
       else if (r.status === 'Excused') totalExcused++;
 
-      const secKey = (r.section === 'SideDrum/BaseDrum' ? 'SideDrum' : r.section) as InstrumentSection;
+      const secKey = ((r.section as string) === 'SideDrum/BaseDrum' ? 'SideDrum' : r.section) as InstrumentSection;
       if (sectionStats[secKey]) {
         sectionStats[secKey].total++;
         if (r.status === 'Present' || r.status === 'Late') {

@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUsers, addUser } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
-import { canManageAllUsers, canManageSectionUsers, isInstrumentMajor, isOverallMajor, getManagedSection } from '@/lib/rbac';
+import {
+  canManageAllUsers,
+  canManageSectionUsers,
+  isInstrumentMajor,
+  isOverallMajor,
+  getManagedSection,
+  generateCredentialsFromFullName,
+} from '@/lib/rbac';
+import { addMemberToGoogleSheet } from '@/lib/google-sheets';
 import { User } from '@/types/band';
 
 export async function GET(req: NextRequest) {
@@ -14,12 +22,12 @@ export async function GET(req: NextRequest) {
 
     let allUsers = getUsers();
 
-    // Section Major (e.g. Trumpet Major) strictly sees only their section players
+    // Section Major strictly sees only their section players (excluding Executive Majors)
     if (user && isInstrumentMajor(user.role) && !isOverallMajor(user.role) && all !== 'true') {
       const managedSection = getManagedSection(user.role) || user.section;
-      allUsers = allUsers.filter(u => u.section === managedSection);
+      allUsers = allUsers.filter(u => u.section === managedSection && !isOverallMajor(u.role) && u.role !== 'Major');
     } else if (section && section !== 'All') {
-      allUsers = allUsers.filter(u => u.section === section);
+      allUsers = allUsers.filter(u => u.section === section && !isOverallMajor(u.role) && u.role !== 'Major');
     }
 
     if (role && role !== 'All') {
@@ -40,11 +48,11 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, email, role, section, phone, rank } = body;
+    const { itsNumber, name, email, role, section, phone, address, jamaat, rank, username, password } = body;
 
-    if (!name || !email || !role || !section) {
+    if (!name || !role || !section) {
       return NextResponse.json(
-        { error: 'Name, email, role, and section are required' },
+        { error: 'Full Name, Role, and Section are required' },
         { status: 400 }
       );
     }
@@ -57,25 +65,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error:
-            'Permission Denied: Instrument Majors may only add players to their own instrument section. Overall Major permission required for other roles.',
+            'Permission Denied: Instrument Majors may only add players to their own instrument section. Major authority required for other roles.',
         },
         { status: 403 }
       );
     }
 
+    // Credentials auto-generation fallback if not provided
+    const creds = generateCredentialsFromFullName(name);
+    const finalUsername = (username || creds.username).trim();
+    const finalPassword = (password || creds.password).trim();
+    const finalEmail = (email || finalUsername).trim();
+
     const newUser = addUser({
-      name,
-      email,
+      itsNumber: itsNumber ? String(itsNumber).trim() : undefined,
+      name: name.trim(),
+      username: finalUsername,
+      email: finalEmail,
+      password: finalPassword,
       role,
       section,
-      phone,
-      rank,
+      phone: phone ? String(phone).trim() : undefined,
+      address: address ? String(address).trim() : undefined,
+      jamaat: jamaat ? String(jamaat).trim() : undefined,
+      rank: rank || role,
       joinedDate: new Date().toISOString().split('T')[0],
       active: true,
     });
 
+    // Sync to Member Details sheet in Excel & Google Drive
+    try {
+      await addMemberToGoogleSheet(newUser);
+    } catch (sheetErr) {
+      console.warn('Google Sheet/Excel sync warning:', sheetErr);
+    }
+
     return NextResponse.json({ success: true, user: newUser }, { status: 201 });
   } catch (error) {
+    console.error('Create user error:', error);
     return NextResponse.json({ error: 'Failed to create user' }, { status: 500 });
   }
 }

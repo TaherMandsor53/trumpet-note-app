@@ -12,8 +12,8 @@ import {
   useAssignTuneMutation,
   useSyncDriveSectionMutation,
 } from '@/store/api/bandApi';
-import { getManagedSection, isOverallMajor, ALL_SECTIONS } from '@/lib/rbac';
-import { InstrumentSection, User, Tune } from '@/types/band';
+import { getManagedSection, isOverallMajor, isInstrumentMajor, ALL_SECTIONS } from '@/lib/rbac';
+import { InstrumentSection, User, Tune, Role } from '@/types/band';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,11 +22,14 @@ import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } fr
 import { formatDate, getDaysRemainingForNewBadge, cn } from '@/lib/utils';
 import { AttendanceMarker } from '@/components/attendance/AttendanceMarker';
 import { AttendanceReports } from '@/components/attendance/AttendanceReports';
+import { MemberModal } from '@/components/members/MemberModal';
+import { useToast } from '@/components/ui/toast';
 import {
   Users,
   Music,
   Plus,
   Trash2,
+  Pencil,
   Share2,
   CloudLightning,
   FileText,
@@ -71,69 +74,62 @@ export function SectionWorkspace({ initialSection }: SectionWorkspaceProps = {})
   const [deleteUser] = useDeleteUserMutation();
   const [assignTune, { isLoading: isAssigning }] = useAssignTuneMutation();
   const [syncDrive, { isLoading: isSyncingDrive }] = useSyncDriveSectionMutation();
+  const { toast } = useToast();
 
-  const [isAddPlayerModalOpen, setIsAddPlayerModalOpen] = useState(false);
+  const canManageThisSection = isSuperAdmin || (managedSec !== null && managedSec === currentSection);
+
+  const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
+  const [selectedPlayerForEdit, setSelectedPlayerForEdit] = useState<User | null>(null);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [selectedTune, setSelectedTune] = useState<Tune | null>(null);
   const [assignedPlayerIds, setAssignedPlayerIds] = useState<string[]>([]);
 
-  // Add Player Form
-  const [playerName, setPlayerName] = useState('');
-  const [playerEmail, setPlayerEmail] = useState('');
-  const [playerPhone, setPlayerPhone] = useState('');
-  const [playerRank, setPlayerRank] = useState('');
-
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [activeSectionTab, setActiveSectionTab] = useState<'repertoire' | 'attendance'>('repertoire');
 
-  // Exclude executive commanders who don't play as section instrument players
-  const isExecutiveCommander = (u: User) =>
-    u.role === 'Overall Major' ||
-    u.rank?.toLowerCase().includes('overall major') ||
-    u.rank?.toLowerCase().includes('executive command') ||
-    u.rank?.toLowerCase().includes('command overall major');
+  // Exclude executive commanders / Majors who don't play as section instrument players
+  const isExecutiveCommander = (u: User) => {
+    if (isInstrumentMajor(u.role)) return false;
+    return (
+      u.role === 'Major' ||
+      u.role === 'Overall Major' ||
+      isOverallMajor(u.role) ||
+      u.rank?.toLowerCase() === 'major' ||
+      u.rank?.toLowerCase().includes('overall major') ||
+      u.rank?.toLowerCase().includes('executive command') ||
+      u.rank?.toLowerCase().includes('command overall major')
+    );
+  };
 
   // Sort section players: Instrument Major FIRST, then others alphabetically
   const sectionPlayers = (usersData?.users || [])
     .filter(u => u.section === currentSection && !isExecutiveCommander(u))
     .sort((a, b) => {
-      const aIsMajor = a.role.endsWith('Major') || a.role === `${currentSection} Major`;
-      const bIsMajor = b.role.endsWith('Major') || b.role === `${currentSection} Major`;
+      const aIsMajor = isInstrumentMajor(a.role) || a.role === `${currentSection} Major`;
+      const bIsMajor = isInstrumentMajor(b.role) || b.role === `${currentSection} Major`;
       if (aIsMajor && !bIsMajor) return -1;
       if (!aIsMajor && bIsMajor) return 1;
       return a.name.localeCompare(b.name);
     });
   const sectionTunes = (tunesData?.tunes || []).filter(t => t.section === currentSection);
 
-  const handleAddPlayer = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!playerName || !playerEmail) return;
-
-    try {
-      await createUser({
-        name: playerName,
-        email: playerEmail,
-        phone: playerPhone,
-        rank: playerRank || `${currentSection} Player`,
-        section: currentSection,
-        role: 'Band Member / Player',
-      }).unwrap();
-
-      setIsAddPlayerModalOpen(false);
-      setPlayerName('');
-      setPlayerEmail('');
-      setPlayerPhone('');
-      setPlayerRank('');
-      refetchUsers();
-    } catch (err: any) {
-      alert(err?.data?.error || 'Failed to add player');
-    }
-  };
+  // Add/Edit is handled via MemberModal
 
   const handleDeletePlayer = async (id: string) => {
-    if (confirm(`Remove this player from the ${currentSection} roster?`)) {
-      await deleteUser(id);
-      refetchUsers();
+    if (confirm(`Remove this player from the ${currentSection} roster? This will sync with Google Sheets.`)) {
+      try {
+        await deleteUser(id).unwrap();
+        toast.success(
+          'Player Removed Successfully',
+          `Musician has been removed from the ${currentSection} roster and synced to Google Sheets & local Excel.`
+        );
+        refetchUsers();
+      } catch (err: any) {
+        toast.error(
+          'Removal Failed',
+          err?.data?.error || err?.message || 'Failed to remove player.'
+        );
+      }
     }
   };
 
@@ -158,8 +154,15 @@ export function SectionWorkspace({ initialSection }: SectionWorkspaceProps = {})
       }).unwrap();
       setIsAssignModalOpen(false);
       refetchTunes();
+      toast.success(
+        'Tune Assigned Successfully',
+        `Assigned "${selectedTune.title}" to ${assignedPlayerIds.length} musician(s).`
+      );
     } catch (err: any) {
-      alert(err?.data?.error || 'Failed to assign tune.');
+      toast.error(
+        'Assignment Failed',
+        err?.data?.error || err?.message || 'Failed to assign tune.'
+      );
     }
   };
 
@@ -167,12 +170,14 @@ export function SectionWorkspace({ initialSection }: SectionWorkspaceProps = {})
     setSyncNotice(null);
     try {
       const res = await syncDrive({ section: currentSection }).unwrap();
-      setSyncNotice(
-        `Synced with Google Drive! Discovered ${res.result.syncedFilesCount} files (${res.result.newFilesAdded} new).`
-      );
+      const msg = `Discovered ${res.result.syncedFilesCount} files (${res.result.newFilesAdded} new) from Google Drive.`;
+      setSyncNotice(`Synced with Google Drive! ${msg}`);
+      toast.success('Drive Synchronized', msg);
       refetchTunes();
     } catch (err: any) {
-      setSyncNotice(err?.data?.error || 'Drive sync failed.');
+      const errTxt = err?.data?.error || 'Drive sync failed.';
+      setSyncNotice(errTxt);
+      toast.error('Drive Sync Error', errTxt);
     }
   };
 
@@ -203,14 +208,19 @@ export function SectionWorkspace({ initialSection }: SectionWorkspaceProps = {})
             <CloudLightning className="w-3.5 h-3.5 text-amber-400" />
             {isSyncingDrive ? 'Syncing Drive...' : 'Sync Google Drive'}
           </Button>
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => setIsAddPlayerModalOpen(true)}
-            className="text-xs gap-1.5"
-          >
-            <Plus className="w-3.5 h-3.5" /> Add Section Player
-          </Button>
+          {canManageThisSection && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => {
+                setSelectedPlayerForEdit(null);
+                setIsMemberModalOpen(true);
+              }}
+              className="text-xs gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add Section Player
+            </Button>
+          )}
         </div>
       </div>
 
@@ -304,25 +314,25 @@ export function SectionWorkspace({ initialSection }: SectionWorkspaceProps = {})
               </p>
             ) : (
               sectionPlayers.map(player => {
-                const isMajor = player.role.endsWith('Major') || player.role === `${currentSection} Major`;
+                const isSectionMajor = isInstrumentMajor(player.role) || player.role === `${currentSection} Major`;
 
                 return (
                   <div
                     key={player.id}
                     className={cn(
                       'flex items-center justify-between p-3 rounded-lg border transition-colors text-xs',
-                      isMajor
+                      isSectionMajor
                         ? 'border-amber-500/40 bg-amber-500/10'
                         : 'border-border/60 bg-muted/20 hover:bg-muted/40'
                     )}
                   >
                     <div>
                       <div className="flex items-center gap-1.5">
-                        {isMajor && <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
-                        <h4 className={cn('font-semibold', isMajor ? 'text-amber-300 font-bold' : 'text-foreground')}>
+                        {isSectionMajor && <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />}
+                        <h4 className={cn('font-semibold', isSectionMajor ? 'text-amber-300 font-bold' : 'text-foreground')}>
                           {player.name}
                         </h4>
-                        {isMajor && (
+                        {isSectionMajor && (
                           <Badge className="bg-[#D97736] text-white text-[9px] py-0 px-1 font-bold uppercase">
                             Section Major
                           </Badge>
@@ -331,7 +341,7 @@ export function SectionWorkspace({ initialSection }: SectionWorkspaceProps = {})
                       <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{player.email}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <Badge variant="outline" className="text-[10px] py-0">
-                          {player.rank || (isMajor ? `${currentSection} Major` : 'Player')}
+                          {player.rank || (isSectionMajor ? `${currentSection} Major` : 'Player')}
                         </Badge>
                         {player.phone && (
                           <span className="text-[10px] text-muted-foreground font-medium font-mono">
@@ -340,18 +350,34 @@ export function SectionWorkspace({ initialSection }: SectionWorkspaceProps = {})
                         )}
                       </div>
                     </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDeletePlayer(player.id)}
-                    className="text-muted-foreground hover:text-destructive h-8 w-8 p-0"
-                    title="Remove Player"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              );
-            })
+                    {canManageThisSection && (
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedPlayerForEdit(player);
+                            setIsMemberModalOpen(true);
+                          }}
+                          className="text-muted-foreground hover:text-amber-400 h-8 w-8 p-0"
+                          title="Edit Player"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeletePlayer(player.id)}
+                          className="text-muted-foreground hover:text-destructive h-8 w-8 p-0"
+                          title="Remove Player"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
           )}
           </CardContent>
         </Card>
@@ -451,68 +477,18 @@ export function SectionWorkspace({ initialSection }: SectionWorkspaceProps = {})
       </div>
       )}
 
-      {/* Add Player Dialog */}
-      <Dialog open={isAddPlayerModalOpen} onOpenChange={setIsAddPlayerModalOpen}>
-        <DialogHeader>
-          <DialogTitle>Add Player to {currentSection} Section</DialogTitle>
-          <DialogDescription>
-            Register a new musician into the active {currentSection} roster.
-          </DialogDescription>
-        </DialogHeader>
-
-        <form onSubmit={handleAddPlayer} className="space-y-3 text-xs">
-          <div>
-            <label className="font-medium text-muted-foreground mb-1 block">Musician Full Name</label>
-            <Input
-              value={playerName}
-              onChange={e => setPlayerName(e.target.value)}
-              placeholder="e.g. Murtaza Bhai"
-              required
-            />
-          </div>
-          <div>
-            <label className="font-medium text-muted-foreground mb-1 block">Email Address</label>
-            <Input
-              type="email"
-              value={playerEmail}
-              onChange={e => setPlayerEmail(e.target.value)}
-              placeholder="murtaza@taheriscout.org"
-              required
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="font-medium text-muted-foreground mb-1 block">Phone Number</label>
-              <Input
-                value={playerPhone}
-                onChange={e => setPlayerPhone(e.target.value)}
-                placeholder="+91 98200..."
-              />
-            </div>
-            <div>
-              <label className="font-medium text-muted-foreground mb-1 block">Band Rank / Role</label>
-              <Input
-                value={playerRank}
-                onChange={e => setPlayerRank(e.target.value)}
-                placeholder="e.g. 1st Voice / Cadence Lead"
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsAddPlayerModalOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="default" disabled={isCreatingUser}>
-              {isCreatingUser ? 'Adding...' : 'Add Player'}
-            </Button>
-          </DialogFooter>
-        </form>
-      </Dialog>
+      {/* Reusable Member Management Modal (Add & Edit for Section) */}
+      <MemberModal
+        isOpen={isMemberModalOpen}
+        onClose={() => {
+          setIsMemberModalOpen(false);
+          setSelectedPlayerForEdit(null);
+        }}
+        onSuccess={() => refetchUsers()}
+        memberToEdit={selectedPlayerForEdit}
+        currentSection={currentSection}
+        userRole={role as Role}
+      />
 
       {/* Assign Tune Dialog */}
       <Dialog open={isAssignModalOpen} onOpenChange={setIsAssignModalOpen}>
