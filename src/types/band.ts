@@ -48,7 +48,7 @@ export interface User {
   active: boolean;
 }
 
-export type LavajamStatus = 'Paid' | 'Pending';
+export type LavajamStatus = 'Paid' | 'Unpaid' | 'Pending';
 
 export interface LavajamRecord {
   id: string;
@@ -57,7 +57,7 @@ export interface LavajamRecord {
   userName: string;
   fundType?: 'Lavajam' | 'Hoob';
   section?: InstrumentSection | string;
-  year?: number;
+  year?: number | string;
   month?: string;
   amount: number;
   status: LavajamStatus;

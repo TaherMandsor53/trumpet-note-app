@@ -21,7 +21,7 @@ import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } fr
 import { ThemedDatePicker } from '@/components/ui/ThemedDatePicker';
 import { LavajamCharts } from '@/components/financial/LavajamCharts';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { LavajamRecord, ExpenseRecord } from '@/types/band';
+import { LavajamRecord, LavajamStatus, ExpenseRecord } from '@/types/band';
 import {
   Coins,
   TrendingDown,
@@ -37,8 +37,14 @@ import {
 } from 'lucide-react';
 
 export function FinancialPortal() {
+  // Active Tab: 'contributions' or 'expenses'
+  const [activeTab, setActiveTab] = useState<'contributions' | 'expenses'>('contributions');
+
+  // Year filter state (defaults to '2026')
+  const [selectedYear, setSelectedYear] = useState<string>('2026');
+
   // Queries & Mutations
-  const { data: finData, isLoading: isFinLoading, refetch: refetchFin } = useGetFinancialsQuery();
+  const { data: finData, isLoading: isFinLoading, refetch: refetchFin } = useGetFinancialsQuery({ year: selectedYear });
   const { data: expData, isLoading: isExpLoading, refetch: refetchExp } = useGetExpensesQuery();
   const { data: usersData } = useGetUsersQuery();
 
@@ -50,12 +56,9 @@ export function FinancialPortal() {
   const [updateExpense, { isLoading: isUpdatingExp }] = useUpdateExpenseMutation();
   const [deleteExpense] = useDeleteExpenseMutation();
 
-  // Active Tab: 'contributions' or 'expenses'
-  const [activeTab, setActiveTab] = useState<'contributions' | 'expenses'>('contributions');
-
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Pending'>('All');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Unpaid'>('All');
   const [sectionFilter, setSectionFilter] = useState('All');
 
   // Modal States
@@ -71,15 +74,9 @@ export function FinancialPortal() {
   const [fundType, setFundType] = useState<'Lavajam' | 'Hoob'>('Lavajam');
   const [formUserId, setFormUserId] = useState('');
   const [formHoobName, setFormHoobName] = useState('');
+  const [formYear, setFormYear] = useState('2026');
   const [formAmount, setFormAmount] = useState(1000);
-  const [formDate, setFormDate] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  });
-  const [formStatus, setFormStatus] = useState<'Paid' | 'Pending'>('Paid');
-  const [formMethod, setFormMethod] = useState<'UPI' | 'Cash' | 'Bank Transfer' | 'Cheque'>('UPI');
-  const [formRef, setFormRef] = useState('');
-  const [formNotes, setFormNotes] = useState('');
+  const [formStatus, setFormStatus] = useState<LavajamStatus>('Paid');
 
   // Expense Form State
   const [expName, setExpName] = useState('');
@@ -94,12 +91,12 @@ export function FinancialPortal() {
   const records = finData?.records || [];
   const expenses = expData?.expenses || [];
   const users = usersData?.users || [];
+  const availableYears = finData?.years && finData.years.length > 0 ? finData.years : ['2026', '2025', '2024'];
 
   // Filtered records for Contributions
   const filteredContributions = records.filter(r => {
     const matchesSearch =
       r.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (r.receiptNo && r.receiptNo.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (r.fundType && r.fundType.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (r.section && r.section.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -123,13 +120,9 @@ export function FinancialPortal() {
     setFundType('Lavajam');
     setFormUserId('');
     setFormHoobName('');
+    setFormYear(selectedYear);
     setFormAmount(1000);
-    const now = new Date();
-    setFormDate(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`);
     setFormStatus('Paid');
-    setFormMethod('UPI');
-    setFormRef('');
-    setFormNotes('');
   };
 
   // Reset Expense Form
@@ -148,21 +141,9 @@ export function FinancialPortal() {
     setFundType(rec.fundType === 'Hoob' ? 'Hoob' : 'Lavajam');
     setFormUserId(rec.userId || '');
     setFormHoobName(rec.fundType === 'Hoob' ? rec.userName : '');
+    setFormYear(String(rec.year || selectedYear));
     setFormAmount(rec.amount);
-
-    // Parse date if in DD/MM/YYYY
-    let parsedDate = rec.date || '';
-    if (parsedDate && parsedDate.includes('/')) {
-      const parts = parsedDate.split('/');
-      if (parts.length === 3) {
-        parsedDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
-      }
-    }
-    setFormDate(parsedDate || new Date().toISOString().split('T')[0]);
     setFormStatus(rec.status);
-    setFormMethod((rec.paymentMethod as any) || 'UPI');
-    setFormRef(rec.transactionRef || '');
-    setFormNotes(rec.notes || '');
     setIsEditContributionOpen(true);
   };
 
@@ -197,13 +178,14 @@ export function FinancialPortal() {
         return;
       }
 
+      const amt = Number(formAmount) || 0;
       await createFinancialRecord({
         fundType,
         userId: fundType === 'Lavajam' ? formUserId : undefined,
         userName: contributorName,
-        date: formDate,
-        amount: Number(formAmount) || 0,
-        status: 'Paid',
+        year: formYear,
+        amount: amt,
+        status: amt > 0 ? 'Paid' : 'Unpaid',
       }).unwrap();
 
       setIsAddContributionOpen(false);
@@ -224,6 +206,7 @@ export function FinancialPortal() {
       const memberObj = fundType === 'Lavajam' ? users.find(u => u.id === formUserId) : null;
       const contributorName = fundType === 'Lavajam' ? (memberObj?.name || editingContribution.userName) : formHoobName.trim();
 
+      const amt = Number(formAmount) || 0;
       await updateFinancialRecord({
         id: editingContribution.id,
         originalName: editingContribution.userName,
@@ -231,12 +214,9 @@ export function FinancialPortal() {
         userId: fundType === 'Lavajam' ? formUserId : undefined,
         userName: contributorName,
         section: fundType === 'Lavajam' && memberObj ? memberObj.section : (editingContribution.section || 'External / Hoob'),
-        date: formDate,
-        amount: Number(formAmount) || 0,
-        status: editingContribution.status || 'Paid',
-        paymentMethod: editingContribution.paymentMethod,
-        transactionRef: editingContribution.transactionRef,
-        notes: editingContribution.notes,
+        year: formYear,
+        amount: amt,
+        status: amt > 0 ? 'Paid' : 'Unpaid',
       } as any).unwrap();
 
       setIsEditContributionOpen(false);
@@ -251,9 +231,14 @@ export function FinancialPortal() {
 
   // Handle Delete Contribution (DELETE)
   const handleDeleteContribution = async (rec: LavajamRecord) => {
-    if (confirm(`Are you sure you want to delete the contribution for ${rec.userName}? This will remove it from the ledger, Excel, and Google Sheet.`)) {
+    const isHoob = (rec.fundType || '').toLowerCase().includes('hoob');
+    const confirmMsg = isHoob
+      ? `Are you sure you want to delete the Hoob contribution for "${rec.userName}"?`
+      : `Are you sure you want to clear the ${selectedYear} contribution for "${rec.userName}"? This will mark this member as Unpaid in Excel and Google Sheet.`;
+
+    if (confirm(confirmMsg)) {
       try {
-        await deleteFinancialRecord(rec.id).unwrap();
+        await deleteFinancialRecord(`id=${rec.id}&year=${selectedYear}`).unwrap();
         refetchFin();
       } catch (err) {
         console.error('Failed to delete contribution record', err);
@@ -436,7 +421,7 @@ export function FinancialPortal() {
           <Input
             placeholder={
               activeTab === 'contributions'
-                ? 'Search member name, receipt number, fund type, section...'
+                ? 'Search member name, fund type, section...'
                 : 'Search expense name, category, date...'
             }
             value={searchTerm}
@@ -446,7 +431,23 @@ export function FinancialPortal() {
         </div>
 
         {activeTab === 'contributions' && (
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+            {/* Year Filter Dropdown */}
+            <div className="flex items-center gap-1.5 bg-background border border-border rounded-lg px-2.5 py-1 shadow-xs">
+              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Year:</span>
+              <Select
+                value={selectedYear}
+                onChange={e => setSelectedYear(e.target.value)}
+                className="text-xs font-bold w-24 border-0 p-0 h-auto bg-transparent focus:ring-0 text-foreground"
+              >
+                {availableYears.map(yr => (
+                  <option key={yr} value={yr}>
+                    {yr}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
             <Select
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value as any)}
@@ -454,7 +455,7 @@ export function FinancialPortal() {
             >
               <option value="All">All Statuses</option>
               <option value="Paid">Paid</option>
-              <option value="Pending">Pending</option>
+              <option value="Unpaid">Unpaid</option>
             </Select>
 
             <Select
@@ -478,9 +479,25 @@ export function FinancialPortal() {
           TAB 1: CONTRIBUTIONS (Lavajam Details Table & Mobile Cards)
          ======================================================== */}
       {activeTab === 'contributions' && (
-        <Card className="border border-border shadow-xs overflow-hidden">
+        <Card className="border border-border shadow-xs overflow-hidden space-y-3 p-3">
+          {/* Year Overview Banner */}
+          <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-muted/40 border border-border text-xs flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-foreground">Year {selectedYear} Overview:</span>
+              <Badge variant="emerald" className="text-[11px] font-bold">
+                Paid: {finData?.metrics?.paidCount ?? records.filter(r => r.status === 'Paid').length}
+              </Badge>
+              <Badge variant="destructive" className="text-[11px] font-bold">
+                Unpaid: {finData?.metrics?.unpaidCount ?? records.filter(r => r.status === 'Unpaid').length}
+              </Badge>
+            </div>
+            <div className="font-bold text-foreground">
+              Total Collected: <span className="text-emerald-500 font-mono">{formatCurrency(finData?.metrics?.totalCollected || records.filter(r => r.status === 'Paid').reduce((sum, r) => sum + r.amount, 0))}</span>
+            </div>
+          </div>
+
           {/* Mobile Ledger Cards (Phones & Tablets < 768px - ZERO horizontal scroll) */}
-          <div className="block md:hidden p-3 space-y-2.5">
+          <div className="block md:hidden space-y-2.5">
             {filteredContributions.length === 0 ? (
               <div className="py-8 text-center text-muted-foreground text-xs p-4 rounded-xl border border-dashed">
                 No contribution records matching the current filters.
@@ -505,8 +522,8 @@ export function FinancialPortal() {
                           </Badge>
                         )}
                       </div>
-                      <div className="text-xs font-mono text-muted-foreground">
-                        {record.date || '24/09/2026'} • {record.receiptNo || 'REC-2026'}
+                      <div className="text-xs text-muted-foreground">
+                        {record.section || 'General'}
                       </div>
                     </div>
 
@@ -531,7 +548,7 @@ export function FinancialPortal() {
                         size="sm"
                         onClick={() => handleDeleteContribution(record)}
                         className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive bg-muted/20"
-                        title="Delete Record"
+                        title={record.fundType === 'Hoob' ? 'Delete Hoob Contributor' : 'Clear Contribution (Mark Unpaid)'}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
@@ -540,19 +557,14 @@ export function FinancialPortal() {
 
                   <div className="flex items-center justify-between pt-2 border-t border-border/60 text-xs">
                     <div className="flex items-center gap-1.5">
-                      <Badge variant="outline" className="text-[10px] py-0">
-                        {record.section || 'General'}
-                      </Badge>
+                      <span className="text-[11px] text-muted-foreground font-mono">
+                        Year {record.year || selectedYear}
+                      </span>
                     </div>
                     <div className="text-right">
                       <span className="font-bold text-sm text-foreground">
-                        {formatCurrency(record.amount)}
+                        {record.amount > 0 ? formatCurrency(record.amount) : '₹0'}
                       </span>
-                      {record.paymentMethod && (
-                        <span className="block text-[10px] text-muted-foreground font-mono">
-                          {record.paymentMethod}
-                        </span>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -560,12 +572,11 @@ export function FinancialPortal() {
             )}
           </div>
 
-          {/* Desktop Table (Visible on Screen >= 768px) */}
+          {/* Desktop Table (Visible on Screen >= 768px - NO Date column) */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-xs text-left">
               <thead className="bg-muted/60 text-muted-foreground uppercase text-[10px] tracking-wider border-b">
                 <tr>
-                  <th className="py-3 px-4">Date</th>
                   <th className="py-3 px-4">Member Name</th>
                   <th className="py-3 px-4">Section</th>
                   <th className="py-3 px-4">Amount</th>
@@ -576,23 +587,13 @@ export function FinancialPortal() {
               <tbody className="divide-y divide-border/60">
                 {filteredContributions.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                    <td colSpan={5} className="py-8 text-center text-muted-foreground">
                       No contribution records matching the current filters.
                     </td>
                   </tr>
                 ) : (
                   filteredContributions.map(record => (
                     <tr key={record.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="font-mono font-medium text-foreground">
-                          {record.date || '24/09/2026'}
-                        </div>
-                        {record.receiptNo && (
-                          <div className="text-[10px] text-muted-foreground font-mono">
-                            {record.receiptNo}
-                          </div>
-                        )}
-                      </td>
                       <td className="py-3 px-4">
                         <div className="font-semibold text-foreground flex items-center gap-1.5">
                           <span>{record.userName}</span>
@@ -606,12 +607,6 @@ export function FinancialPortal() {
                             </Badge>
                           )}
                         </div>
-                        {record.paymentMethod && (
-                          <div className="text-[10px] text-muted-foreground">
-                            {record.paymentMethod}
-                            {record.transactionRef && ` • ${record.transactionRef}`}
-                          </div>
-                        )}
                       </td>
                       <td className="py-3 px-4">
                         <Badge variant="outline" className="text-[10px]">
@@ -619,7 +614,11 @@ export function FinancialPortal() {
                         </Badge>
                       </td>
                       <td className="py-3 px-4 font-bold text-foreground">
-                        {formatCurrency(record.amount)}
+                        {record.amount > 0 ? (
+                          formatCurrency(record.amount)
+                        ) : (
+                          <span className="text-muted-foreground font-mono">₹0</span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-center">
                         <Badge
@@ -645,7 +644,7 @@ export function FinancialPortal() {
                             size="sm"
                             onClick={() => handleDeleteContribution(record)}
                             className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                            title="Delete Record"
+                            title={record.fundType === 'Hoob' ? 'Delete Hoob Contributor' : 'Clear Contribution (Mark Unpaid)'}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
@@ -801,7 +800,7 @@ export function FinancialPortal() {
             Record Lavajam Band Contribution
           </DialogTitle>
           <DialogDescription>
-            Log a verified contribution payment from a band member or Hoob donor into the central ledger and Google Sheets.
+            Record Lavajam or Hoob contribution for year {formYear}. Updates will sync directly to Google Sheets &amp; Excel.
           </DialogDescription>
         </DialogHeader>
 
@@ -850,12 +849,31 @@ export function FinancialPortal() {
               <Input
                 value={formHoobName}
                 onChange={e => setFormHoobName(e.target.value)}
-                placeholder="Enter donor or community member name"
+                placeholder="Enter unique donor or community member name"
                 className="text-xs"
                 required
               />
             </div>
           )}
+
+          {/* Target Contribution Year */}
+          <div>
+            <label className="font-semibold text-foreground mb-1 block">
+              Contribution Year
+            </label>
+            <Select
+              value={formYear}
+              onChange={e => setFormYear(e.target.value)}
+              className="w-full text-xs font-medium"
+              required
+            >
+              {availableYears.map(yr => (
+                <option key={yr} value={yr}>
+                  {yr}
+                </option>
+              ))}
+            </Select>
+          </div>
 
           {/* Amount (INR ₹) */}
           <div>
@@ -869,18 +887,6 @@ export function FinancialPortal() {
               placeholder="1000"
               className="text-xs w-full"
               required
-            />
-          </div>
-
-          {/* Contribution Date (in next line) */}
-          <div>
-            <label className="font-semibold text-foreground mb-1 block">
-              Contribution Date
-            </label>
-            <ThemedDatePicker
-              value={formDate}
-              onChange={setFormDate}
-              label="Contribution Date"
             />
           </div>
 
@@ -909,7 +915,7 @@ export function FinancialPortal() {
             Edit Contribution Record
           </DialogTitle>
           <DialogDescription>
-            Modify details for this contribution. Updates will sync with Excel and Google Sheets under Lavajam Details.
+            Modify details for this contribution for Year {formYear}. Updates will sync with Excel and Google Sheets under Lavajam Details.
           </DialogDescription>
         </DialogHeader>
 
@@ -961,6 +967,25 @@ export function FinancialPortal() {
             </div>
           )}
 
+          {/* Target Contribution Year */}
+          <div>
+            <label className="font-semibold text-foreground mb-1 block">
+              Contribution Year
+            </label>
+            <Select
+              value={formYear}
+              onChange={e => setFormYear(e.target.value)}
+              className="w-full text-xs font-medium"
+              required
+            >
+              {availableYears.map(yr => (
+                <option key={yr} value={yr}>
+                  {yr}
+                </option>
+              ))}
+            </Select>
+          </div>
+
           {/* Amount (INR ₹) */}
           <div>
             <label className="font-semibold text-foreground mb-1 block">
@@ -972,18 +997,6 @@ export function FinancialPortal() {
               onChange={e => setFormAmount(Number(e.target.value))}
               className="text-xs w-full"
               required
-            />
-          </div>
-
-          {/* Contribution Date (in next line) */}
-          <div>
-            <label className="font-semibold text-foreground mb-1 block">
-              Contribution Date
-            </label>
-            <ThemedDatePicker
-              value={formDate}
-              onChange={setFormDate}
-              label="Contribution Date"
             />
           </div>
 

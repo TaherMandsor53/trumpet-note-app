@@ -13,7 +13,7 @@ interface LavajamChartsProps {
   contributions: Array<{
     amount: number;
     fundType?: 'Lavajam' | 'Hoob';
-    status: 'Paid' | 'Pending';
+    status: 'Paid' | 'Unpaid' | 'Pending';
   }>;
   expenses: Array<{
     amount: number;

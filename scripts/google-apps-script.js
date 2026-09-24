@@ -600,6 +600,150 @@ function doPost(e) {
     }
 
     // ------------------------------------------------------------------------
+    // ACTION: addLavajamRecord / updateLavajamRecord / syncLavajamYearEntry
+    // ------------------------------------------------------------------------
+    if (action === "addLavajamRecord" || action === "updateLavajamRecord" || action === "syncLavajamYearEntry") {
+      var lavSheet = ss.getSheetByName("Lavajam Details");
+      if (!lavSheet) {
+        lavSheet = ss.insertSheet("Lavajam Details");
+        lavSheet.appendRow(["Full Name", "Fund Type", "2026"]);
+      }
+
+      var rec = body.record || body;
+      var targetYear = String(body.year || rec.year || "2026").trim();
+      var targetName = String(rec.originalName || rec.userName || body.userName || "").trim().toLowerCase();
+      var fundType = String(rec.fundType || "Lavajam").trim();
+      var amount = Number(rec.amount || 0);
+
+      var data = lavSheet.getDataRange().getValues();
+      var headerRow = data[0] || [];
+
+      // Find Name, Fund Type, and Year column indices (1-based for Sheets API getRange)
+      var nameColIdx = -1;
+      var fundColIdx = -1;
+      var yearColIdx = -1;
+
+      for (var c = 0; c < headerRow.length; c++) {
+        var colName = String(headerRow[c] || "").trim();
+        var colNorm = colName.toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (colNorm === "fullname" || colNorm === "name") {
+          nameColIdx = c + 1;
+        } else if (colNorm === "fundtype") {
+          fundColIdx = c + 1;
+        } else if (colName === targetYear) {
+          yearColIdx = c + 1;
+        }
+      }
+
+      if (nameColIdx === -1) nameColIdx = 1;
+      if (fundColIdx === -1) fundColIdx = 2;
+
+      // If the target Year column does not exist yet, add it
+      if (yearColIdx === -1) {
+        yearColIdx = headerRow.length + 1;
+        lavSheet.getRange(1, yearColIdx).setValue(targetYear);
+      }
+
+      // Search for matching member or Hoob contributor
+      var targetRowIdx = -1;
+      for (var r = 1; r < data.length; r++) {
+        var rowName = String(data[r][nameColIdx - 1] || "").trim().toLowerCase();
+        if (rowName === targetName) {
+          targetRowIdx = r + 1; // 1-based row
+          break;
+        }
+      }
+
+      if (targetRowIdx > 0) {
+        // Update existing member or Hoob contributor
+        lavSheet.getRange(targetRowIdx, fundColIdx).setValue(fundType);
+        lavSheet.getRange(targetRowIdx, yearColIdx).setValue(amount > 0 ? amount : "");
+        return createJsonResponse({
+          success: true,
+          action: action,
+          row: targetRowIdx,
+          message: "Updated " + (rec.userName || targetName) + " in Lavajam Details sheet (Year: " + targetYear + ", Amount: " + amount + ")."
+        });
+      } else {
+        // New contributor (e.g. Hoob)
+        var newRow = [];
+        var maxCols = Math.max(headerRow.length, yearColIdx);
+        for (var i = 0; i < maxCols; i++) {
+          newRow.push("");
+        }
+        newRow[nameColIdx - 1] = rec.userName || targetName;
+        newRow[fundColIdx - 1] = fundType;
+        newRow[yearColIdx - 1] = amount > 0 ? amount : "";
+        lavSheet.appendRow(newRow);
+        return createJsonResponse({
+          success: true,
+          action: action,
+          row: lavSheet.getLastRow(),
+          message: "Added " + (rec.userName || targetName) + " to Lavajam Details sheet (Year: " + targetYear + ", Amount: " + amount + ")."
+        });
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // ACTION: deleteLavajamRecord
+    // ------------------------------------------------------------------------
+    if (action === "deleteLavajamRecord") {
+      var lavSheet = ss.getSheetByName("Lavajam Details");
+      if (!lavSheet) return createJsonResponse({ error: "Lavajam Details sheet not found." });
+
+      var rec = body.record || body;
+      var targetYear = String(body.year || rec.year || "2026").trim();
+      var targetName = String(body.userName || rec.userName || rec.originalName || "").trim().toLowerCase();
+      var data = lavSheet.getDataRange().getValues();
+      var headerRow = data[0] || [];
+
+      var nameColIdx = 1;
+      var fundColIdx = 2;
+      var yearColIdx = -1;
+
+      for (var c = 0; c < headerRow.length; c++) {
+        var colName = String(headerRow[c] || "").trim();
+        var colNorm = colName.toLowerCase().replace(/[^a-z0-9]/g, "");
+        if (colNorm === "fullname" || colNorm === "name") nameColIdx = c + 1;
+        if (colNorm === "fundtype") fundColIdx = c + 1;
+        if (colName === targetYear) yearColIdx = c + 1;
+      }
+
+      var targetRowIdx = -1;
+      var rowFundType = "";
+      for (var r = 1; r < data.length; r++) {
+        var rowName = String(data[r][nameColIdx - 1] || "").trim().toLowerCase();
+        if (rowName === targetName) {
+          targetRowIdx = r + 1;
+          rowFundType = String(data[r][fundColIdx - 1] || "").trim().toLowerCase();
+          break;
+        }
+      }
+
+      if (targetRowIdx > 0) {
+        if (rowFundType.indexOf("hoob") !== -1) {
+          // If Hoob, delete the row
+          lavSheet.deleteRow(targetRowIdx);
+          return createJsonResponse({
+            success: true,
+            message: "Hoob record removed from Lavajam Details row " + targetRowIdx
+          });
+        } else {
+          // For band member, clear the year column so member remains with status Unpaid!
+          if (yearColIdx !== -1) {
+            lavSheet.getRange(targetRowIdx, yearColIdx).setValue("");
+          }
+          return createJsonResponse({
+            success: true,
+            message: "Member contribution cleared for " + targetYear + " (status Unpaid) at row " + targetRowIdx
+          });
+        }
+      }
+
+      return createJsonResponse({ success: false, message: "Record not found in Lavajam Details to delete." });
+    }
+
+    // ------------------------------------------------------------------------
     // ACTION: addExpense
     // ------------------------------------------------------------------------
     if (action === "addExpense") {

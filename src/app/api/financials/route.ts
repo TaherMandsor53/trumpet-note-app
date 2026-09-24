@@ -10,21 +10,6 @@ import { getCurrentUser } from '@/lib/auth';
 import { canAccessLavajam } from '@/lib/rbac';
 import { syncLavajamToExcel, postLavajamToGoogleSheet, syncLavajamFromGoogleSheet } from '@/lib/google-sheets';
 
-function formatDateToDDMMYYYY(dateStr?: string): string {
-  if (!dateStr) {
-    const now = new Date();
-    const dd = String(now.getDate()).padStart(2, '0');
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    return `${dd}/${mm}/${now.getFullYear()}`;
-  }
-  // If format is YYYY-MM-DD
-  const parts = dateStr.split('-');
-  if (parts.length === 3) {
-    return `${parts[2]}/${parts[1]}/${parts[0]}`;
-  }
-  return dateStr;
-}
-
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
@@ -43,28 +28,35 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Always fetch live records in sync with Google Sheets (Lavajam Details sheet)
-    const records = await syncLavajamFromGoogleSheet();
+    const targetYear = req.nextUrl.searchParams.get('year') || '2026';
+
+    // Fetch live records in sync with Google Sheets (Lavajam Details sheet) for requested year
+    const { records, years, selectedYear } = await syncLavajamFromGoogleSheet(targetYear);
 
     // Summary metrics
     const totalCollected = records
       .filter(r => r.status === 'Paid')
-      .reduce((acc, curr) => acc + curr.amount, 0);
+      .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
 
     const totalPending = records
       .filter(r => r.status === 'Pending')
-      .reduce((acc, curr) => acc + curr.amount, 0);
+      .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
 
     const paidCount = records.filter(r => r.status === 'Paid').length;
+    const unpaidCount = records.filter(r => r.status === 'Unpaid').length;
+    const pendingCount = records.filter(r => r.status === 'Pending').length;
     const collectionRate = records.length > 0 ? Math.round((paidCount / records.length) * 100) : 0;
 
     return NextResponse.json({
       records,
+      years,
+      selectedYear,
       metrics: {
         totalCollected,
         totalPending,
         paidCount,
-        pendingCount: records.length - paidCount,
+        unpaidCount,
+        pendingCount,
         collectionRate,
         totalRecords: records.length,
       },
@@ -85,11 +77,12 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { fundType, userId, userName: rawUserName, date: rawDate, amount, status, paymentMethod, transactionRef, notes } = body;
+    const { fundType, userId, userName: rawUserName, amount, year: rawYear, status, paymentMethod, transactionRef, notes } = body;
 
     let memberName = (rawUserName || '').trim();
     let memberSection = 'External / Hoob';
     let targetUserId = userId;
+    const targetYear = String(rawYear || '2026');
 
     if (fundType === 'Lavajam') {
       if (userId) {
@@ -110,36 +103,53 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Contributor name is required' }, { status: 400 });
     }
 
-    const formattedDate = formatDateToDDMMYYYY(rawDate);
     const amountNum = Number(amount) || 0;
-    const recStatus = status || 'Paid';
+    const recStatus = status || (amountNum > 0 ? 'Paid' : 'Unpaid');
 
-    const newRecord = addFinancialRecord({
-      userId: targetUserId,
-      userName: memberName,
-      fundType: fundType || 'Lavajam',
-      section: memberSection as any,
-      date: formattedDate,
-      year: new Date().getFullYear(),
-      month: 'September',
-      amount: amountNum,
-      status: recStatus,
-      paidAt: recStatus === 'Paid' ? new Date().toISOString() : undefined,
-      paymentMethod: paymentMethod || 'Cash',
-      transactionRef,
-      notes,
-      receiptNo: `REC-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
-    });
+    // Check if member already has a record in financials
+    const existing = getFinancials().find(
+      f => f.userName.trim().toLowerCase() === memberName.toLowerCase()
+    );
+
+    let savedRecord;
+    if (existing) {
+      savedRecord = updateFinancialRecord(existing.id, {
+        fundType: fundType || 'Lavajam',
+        amount: amountNum,
+        year: targetYear,
+        status: recStatus,
+        paidAt: recStatus === 'Paid' ? new Date().toISOString() : undefined,
+        paymentMethod: paymentMethod || 'UPI',
+        transactionRef,
+        notes,
+      }) || existing;
+    } else {
+      savedRecord = addFinancialRecord({
+        userId: targetUserId,
+        userName: memberName,
+        fundType: fundType || 'Lavajam',
+        section: memberSection as any,
+        year: targetYear,
+        month: 'September',
+        amount: amountNum,
+        status: recStatus,
+        paidAt: recStatus === 'Paid' ? new Date().toISOString() : undefined,
+        paymentMethod: paymentMethod || 'Cash',
+        transactionRef,
+        notes,
+        receiptNo: `REC-${targetYear}-${Math.floor(100 + Math.random() * 900)}`,
+      });
+    }
 
     // 1. Sync to local Excel file (TAHERI_SCOUT_BAND_GROUP_1448H.xlsx -> Lavajam Details sheet)
-    syncLavajamToExcel(newRecord, 'add');
+    syncLavajamToExcel(savedRecord, 'add', targetYear);
 
     // 2. Sync to live Google Sheet (Lavajam Details sheet)
-    postLavajamToGoogleSheet(newRecord, 'add').catch(err => {
+    postLavajamToGoogleSheet(savedRecord, 'add', targetYear).catch(err => {
       console.warn('Background sync to Google Sheet failed:', err);
     });
 
-    return NextResponse.json({ success: true, record: newRecord }, { status: 201 });
+    return NextResponse.json({ success: true, record: savedRecord }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to record contribution' }, { status: 500 });
   }
@@ -153,25 +163,27 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, originalName, ...updates } = body;
+    const { id, originalName, year: rawYear, ...updates } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Record ID required' }, { status: 400 });
     }
 
-    if (updates.date) {
-      updates.date = formatDateToDDMMYYYY(updates.date);
-    }
+    const targetYear = String(rawYear || updates.year || '2026');
+
     if (updates.amount !== undefined) {
       updates.amount = Number(updates.amount) || 0;
+      updates.status = updates.amount > 0 ? 'Paid' : 'Unpaid';
     }
 
     if (updates.status === 'Paid' && !updates.paidAt) {
       updates.paidAt = new Date().toISOString();
       if (!updates.receiptNo) {
-        updates.receiptNo = `REC-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
+        updates.receiptNo = `REC-${targetYear}-${Math.floor(100 + Math.random() * 900)}`;
       }
     }
+
+    updates.year = targetYear;
 
     const updated = updateFinancialRecord(id, updates);
     if (!updated) {
@@ -179,10 +191,10 @@ export async function PUT(req: NextRequest) {
     }
 
     // 1. Sync to local Excel
-    syncLavajamToExcel(updated, 'update', originalName);
+    syncLavajamToExcel(updated, 'update', targetYear, originalName);
 
     // 2. Sync to Google Sheets
-    postLavajamToGoogleSheet(updated, 'update', originalName).catch(err => {
+    postLavajamToGoogleSheet(updated, 'update', targetYear, originalName).catch(err => {
       console.warn('Background sync to Google Sheet failed:', err);
     });
 
@@ -201,22 +213,36 @@ export async function DELETE(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
+    const targetYear = searchParams.get('year') || '2026';
     if (!id) return NextResponse.json({ error: 'Record ID required' }, { status: 400 });
 
     const existing = getFinancials().find(f => f.id === id);
-    const deleted = deleteFinancialRecord(id);
 
-    if (deleted && existing) {
-      // 1. Sync to local Excel
-      syncLavajamToExcel(existing, 'delete');
+    if (existing) {
+      const isHoob = (existing.fundType || '').toLowerCase().includes('hoob');
 
-      // 2. Sync to Google Sheets
-      postLavajamToGoogleSheet(existing, 'delete').catch(err => {
-        console.warn('Background sync delete to Google Sheet failed:', err);
-      });
+      if (isHoob) {
+        // Delete Hoob contributor record
+        deleteFinancialRecord(id);
+        syncLavajamToExcel(existing, 'delete', targetYear);
+        postLavajamToGoogleSheet(existing, 'delete', targetYear).catch(err => {
+          console.warn('Background sync delete to Google Sheet failed:', err);
+        });
+      } else {
+        // For Band Member: mark as Unpaid by clearing amount for target year
+        const updated = updateFinancialRecord(id, {
+          amount: 0,
+          status: 'Unpaid',
+          year: targetYear,
+        });
+        syncLavajamToExcel(updated || { ...existing, amount: 0, status: 'Unpaid' }, 'delete', targetYear);
+        postLavajamToGoogleSheet(updated || { ...existing, amount: 0, status: 'Unpaid' }, 'delete', targetYear).catch(err => {
+          console.warn('Background sync clear to Google Sheet failed:', err);
+        });
+      }
     }
 
-    return NextResponse.json({ success: deleted });
+    return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete record' }, { status: 500 });
   }

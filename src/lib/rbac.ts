@@ -199,7 +199,7 @@ export function canManageSectionUsers(role: Role, targetSection: InstrumentSecti
  * Exclusively restricted to Major (including Overall Major) and Treasurer roles only.
  */
 export function canAccessLavajam(role: Role, user?: { name?: string; rank?: string; role?: string } | null): boolean {
-  return isOverallMajor(role) || isTreasurer(role, user);
+  return isOverallMajor(role) || isTreasurer(role, user) || isInstrumentMajor(role) || String(role).includes('Major');
 }
 
 /**

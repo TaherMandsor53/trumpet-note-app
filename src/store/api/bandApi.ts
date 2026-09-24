@@ -108,16 +108,22 @@ export const bandApi = createApi({
     // Financials
     getFinancials: builder.query<{
       records: LavajamRecord[];
+      years?: string[];
+      selectedYear?: string;
       metrics: {
         totalCollected: number;
         totalPending: number;
         paidCount: number;
+        unpaidCount?: number;
         pendingCount: number;
         collectionRate: number;
         totalRecords: number;
       };
-    }, void>({
-      query: () => '/financials',
+    }, { year?: string | number } | void>({
+      query: (params) => {
+        const year = params?.year;
+        return year ? `/financials?year=${encodeURIComponent(String(year))}` : '/financials';
+      },
       providesTags: ['Financials'],
     }),
     getPersonalFinancials: builder.query<{
@@ -148,8 +154,8 @@ export const bandApi = createApi({
       invalidatesTags: ['Financials', 'PersonalFinancials'],
     }),
     deleteFinancialRecord: builder.mutation<{ success: boolean }, string>({
-      query: (id) => ({
-        url: `/financials?id=${id}`,
+      query: (arg) => ({
+        url: arg.startsWith('?') ? `/financials${arg}` : (arg.includes('=') ? `/financials?${arg}` : `/financials?id=${arg}`),
         method: 'DELETE',
       }),
       invalidatesTags: ['Financials', 'PersonalFinancials'],
