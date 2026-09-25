@@ -8,14 +8,22 @@ import { setTheme } from '@/store/themeSlice';
 import { useRouter } from 'next/navigation';
 import { logout } from '@/store/authSlice';
 import { useLogoutUserMutation } from '@/store/api/bandApi';
-import { isInstrumentMajor, isOverallMajor } from '@/lib/rbac';
+import { isInstrumentMajor, isOverallMajor, isTreasurer } from '@/lib/rbac';
 import { Role } from '@/types/band';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SoundwaveAnimation } from '@/components/ui/musical-icons';
-import { Moon, Sun, LogOut } from 'lucide-react';
+import { Moon, Sun, LogOut, Menu } from 'lucide-react';
 
-export function Navbar({ activeTab, onTabChange }: { activeTab: string; onTabChange: (tab: string) => void }) {
+export function Navbar({
+  activeTab,
+  onTabChange,
+  onToggleSidebar,
+}: {
+  activeTab: string;
+  onTabChange: (tab: string) => void;
+  onToggleSidebar?: () => void;
+}) {
   const router = useRouter();
   const dispatch = useDispatch();
   const [logoutUser] = useLogoutUserMutation();
@@ -28,49 +36,69 @@ export function Navbar({ activeTab, onTabChange }: { activeTab: string; onTabCha
     else dispatch(setTheme('dark'));
   };
 
+  const roleName = currentUser?.role || activeRole;
+  const isOverallMajorRole = roleName === 'Overall Major' || roleName === 'Major' || isInstrumentMajor(roleName as Role);
+  const isTreasurerRole = isTreasurer(roleName as Role, currentUser);
+
+  const displayRoleTitle = currentUser?.name?.includes('HUSAIN JUJARBHAI KUNDAWALA')
+    ? 'Trumpet Member • Treasurer'
+    : currentUser?.name?.includes('TAHA MAZHARBHAI KUNDAWALA')
+    ? 'SideDrum Member • Treasurer'
+    : roleName;
+
   const getRoleBadgeVariant = (role: string) => {
     if (role === 'Overall Major' || role === 'Major') return 'gold';
-    if (role === 'Treasurer') return 'emerald';
+    if (isTreasurerRole || role === 'Treasurer') return 'emerald';
     if (role.endsWith('Major')) return 'default';
     return 'secondary';
   };
 
-  const roleName = currentUser?.role || activeRole;
-  const isOverallMajorRole = roleName === 'Overall Major' || roleName === 'Major' || isInstrumentMajor(roleName as Role);
-  const isTreasurer = roleName === 'Treasurer';
-
   const handleBrandClick = () => {
-    if (roleName === 'Treasurer') onTabChange('financials');
-    else if (isInstrumentMajor(roleName)) onTabChange('section');
-    else if (roleName === 'Band Member / Player') onTabChange('member-portal');
-    else onTabChange('dashboard');
+    onTabChange('dashboard');
   };
 
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16 gap-4">
-        {/* Brand */}
-        <div className="flex items-center gap-2.5 sm:gap-3 cursor-pointer min-w-0" onClick={handleBrandClick}>
-          <div className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden border-2 border-amber-400/60 shadow-md shrink-0">
-            <Image
-              src="/assets/images/TaheriScoutImg.png"
-              alt="Taheri Scout Band Crest"
-              width={40}
-              height={40}
-              className="object-cover"
-              priority
-            />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <span className="font-serif font-black tracking-wide text-sm sm:text-lg text-foreground truncate">
-                TAHERI SCOUT BAND
-              </span>
-              <SoundwaveAnimation />
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 flex items-center justify-between h-16 gap-3">
+        {/* Left: Mobile Hamburger & Brand */}
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {/* Hamburger Menu Toggle (Mobile / Tablet < lg) */}
+          {onToggleSidebar && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onToggleSidebar}
+              className="lg:hidden p-0 w-9 h-9 rounded-xl border-amber-500/40 hover:bg-amber-500/10 text-foreground shrink-0 shadow-xs flex items-center justify-center"
+              aria-label="Open Navigation Sidepanel"
+              title="Navigation Menu"
+            >
+              <Menu className="w-5 h-5 text-amber-500" />
+            </Button>
+          )}
+
+          {/* Brand */}
+          <div className="flex items-center gap-2 sm:gap-2.5 cursor-pointer min-w-0" onClick={handleBrandClick}>
+            <div className="relative w-8 h-8 sm:w-10 sm:h-10 rounded-full overflow-hidden border-2 border-amber-400/60 shadow-md shrink-0">
+              <Image
+                src="/assets/images/TaheriScoutImg.png"
+                alt="Taheri Scout Band Crest"
+                width={40}
+                height={40}
+                className="object-cover"
+                priority
+              />
             </div>
-            <p className="text-[9px] sm:text-[11px] text-muted-foreground uppercase tracking-widest font-mono truncate">
-              Religious Band Khidmat • Est. 1988
-            </p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="font-serif font-black tracking-wide text-xs sm:text-lg text-foreground truncate">
+                  TAHERI SCOUT BAND
+                </span>
+                <SoundwaveAnimation />
+              </div>
+              <p className="text-[8px] sm:text-[11px] text-muted-foreground uppercase tracking-widest font-mono truncate">
+                Religious Band Khidmat • Est. 1988
+              </p>
+            </div>
           </div>
         </div>
 
@@ -86,7 +114,7 @@ export function Navbar({ activeTab, onTabChange }: { activeTab: string; onTabCha
                 variant={getRoleBadgeVariant(roleName) as any}
                 className="text-[10px] py-0 px-2 font-semibold shadow-xs"
               >
-                {roleName}
+                {displayRoleTitle}
               </Badge>
             </div>
           </div>
@@ -96,9 +124,9 @@ export function Navbar({ activeTab, onTabChange }: { activeTab: string; onTabCha
             <Badge
               variant={getRoleBadgeVariant(roleName) as any}
               className="text-[9px] py-0.5 px-1.5 font-bold uppercase tracking-wider shadow-xs"
-              title={`${currentUser?.name || 'Active'}: ${roleName}`}
+              title={`${currentUser?.name || 'Active'}: ${displayRoleTitle}`}
             >
-              {roleName}
+              {displayRoleTitle}
             </Badge>
           </div>
 

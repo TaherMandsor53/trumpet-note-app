@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     const type = searchParams.get('type');
 
     if (type === 'financials') {
-      if (!user || !canAccessFullFinancials(user.role)) {
+      if (!user || !canAccessFullFinancials(user.role, user)) {
         return NextResponse.json({ error: 'Permission Denied' }, { status: 403 });
       }
       const records = getFinancials();

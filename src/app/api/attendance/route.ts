@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAttendanceSessions, addAttendanceSession, deleteAttendanceSession, getUserById } from '@/lib/db';
+import { getAttendanceSessions, addAttendanceSession, deleteAttendanceSession, getUserById, getUsers } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
-import { canMarkAttendance, canViewAllAttendance } from '@/lib/rbac';
+import { canMarkAttendance, canViewAllAttendance, isInstrumentMajor, getManagedSection } from '@/lib/rbac';
 import { syncAttendanceToSheet } from '@/lib/google-sheets';
 
 export async function GET(req: NextRequest) {
@@ -9,8 +9,39 @@ export async function GET(req: NextRequest) {
     const user = await getCurrentUser(req);
     const sessions = getAttendanceSessions();
 
-    // Privacy & Scoping: If caller is not Major, only return their own attendance record
+    // Privacy & Scoping: If caller is not Overall Major, scope records appropriately
     if (user && !canViewAllAttendance(user.role)) {
+      // If Section Major, show all member records belonging to their section plus their own
+      if (isInstrumentMajor(user.role)) {
+        const managedSection = getManagedSection(user.role) || user.section;
+        const allUsers = getUsers();
+        const isSectionRecord = (r: any) => {
+          if (r.userId === user.id) return true;
+          if (user.itsNumber && (r.userId === user.itsNumber || r.userId === `sheet-${user.itsNumber}`)) return true;
+          if (r.userName && user.name && r.userName.trim().toUpperCase() === user.name.trim().toUpperCase()) return true;
+
+          const memberUser = allUsers.find(
+            u =>
+              u.id === r.userId ||
+              (u.itsNumber && (r.userId === u.itsNumber || r.userId === `sheet-${u.itsNumber}`)) ||
+              (u.name && r.userName && u.name.trim().toUpperCase() === r.userName.trim().toUpperCase())
+          );
+          const effectiveSec = r.section || memberUser?.section;
+          return (
+            effectiveSec === managedSection ||
+            (managedSection === 'SideDrum' && (effectiveSec === 'SideDrum/BaseDrum' || effectiveSec === 'BaseDrum'))
+          );
+        };
+
+        const filteredSessions = sessions.map(sess => ({
+          ...sess,
+          records: (sess.records || []).filter(isSectionRecord),
+        }));
+
+        return NextResponse.json({ sessions: filteredSessions });
+      }
+
+      // Regular members: only return their own attendance record
       const isUserRecord = (r: any) =>
         r.userId === user.id ||
         (user.itsNumber && (r.userId === user.itsNumber || r.userId === `sheet-${user.itsNumber}`)) ||

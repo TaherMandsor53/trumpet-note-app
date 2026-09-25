@@ -11,7 +11,8 @@ import {
   useVerifyForgotUserMutation,
   useResetPasswordMutation,
 } from '@/store/api/bandApi';
-import { setCredentials, setActiveRole } from '@/store/authSlice';
+import { setCredentials, setActiveRole, logout } from '@/store/authSlice';
+import { setSessionTimeoutTimestamp, clearSessionTimeoutTimestamp } from '@/components/auth/SessionTimeoutProvider';
 import { Button } from '@/components/ui/button';
 import { FloatingNoteParticles, SoundwaveAnimation } from '@/components/ui/musical-icons';
 import {
@@ -27,6 +28,7 @@ import {
   Loader2,
   Sparkles,
   RefreshCw,
+  Clock,
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 
@@ -43,6 +45,7 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isTimedOut, setIsTimedOut] = useState(false);
 
   // Forgot Password modal / view states
   const [isForgotOpen, setIsForgotOpen] = useState(false);
@@ -66,9 +69,26 @@ export default function LoginPage() {
   const [verifyForgotUser, { isLoading: isVerifyingForgot }] = useVerifyForgotUserMutation();
   const [resetPassword, { isLoading: isResettingPassword }] = useResetPasswordMutation();
 
-  // If already authenticated, redirect to /dashboard
+  // Detect 2-hour timeout parameter in URL
   useEffect(() => {
-    if (!isCheckingSession) {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('timeout') === 'true') {
+        setIsTimedOut(true);
+        clearSessionTimeoutTimestamp();
+        dispatch(logout());
+        toast.warning('Session Expired', 'Your session timed out after 2 hours. Please log in again.');
+        window.history.replaceState({}, '', '/');
+      }
+    }
+  }, [dispatch, toast]);
+
+  // If already authenticated and not timed out, redirect to /dashboard
+  useEffect(() => {
+    if (!isCheckingSession && !isTimedOut) {
+      if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('timeout') === 'true') {
+        return;
+      }
       if (currentUser || (sessionData?.authenticated && sessionData.user)) {
         if (sessionData?.user && !currentUser) {
           dispatch(setCredentials({ user: sessionData.user, token: '' }));
@@ -77,13 +97,14 @@ export default function LoginPage() {
         router.push('/dashboard');
       }
     }
-  }, [currentUser, sessionData, isCheckingSession, dispatch, router]);
+  }, [currentUser, sessionData, isCheckingSession, dispatch, router, isTimedOut]);
 
   // Handle Login Submit
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
+    setIsTimedOut(false);
 
     if (!username.trim()) {
       setErrorMessage('Please enter your username or registered email.');
@@ -99,6 +120,9 @@ export default function LoginPage() {
         username: username.trim(),
         password,
       }).unwrap();
+
+      // Record 2-hour session expiration
+      setSessionTimeoutTimestamp();
 
       dispatch(setCredentials({ user: res.user, token: res.token }));
       dispatch(setActiveRole(res.user.role));
@@ -268,6 +292,16 @@ export default function LoginPage() {
           {/* Login Card */}
           <div className="bg-white/[0.05] backdrop-blur-2xl border border-white/15 rounded-2xl p-5 sm:p-6 shadow-2xl shadow-black/60 relative overflow-hidden transition-all">
             {/* Status alerts */}
+            {isTimedOut && (
+              <div className="mb-5 p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-2.5 animate-in fade-in slide-in-from-top-2">
+                <Clock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="leading-snug">
+                  <span className="font-bold text-amber-300 block">Session Timed Out</span>
+                  Your session has automatically expired after 2 hours. Please enter your credentials to log in again.
+                </div>
+              </div>
+            )}
+
             {errorMessage && (
               <div className="mb-5 p-3.5 rounded-2xl bg-red-500/15 border border-red-500/30 text-red-200 text-xs flex items-start gap-2.5 animate-in fade-in slide-in-from-top-2">
                 <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />

@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     }
 
     // RBAC: Strictly restricted to Major & Treasurer roles
-    if (!canAccessLavajam(user.role)) {
+    if (!canAccessLavajam(user.role, user)) {
       return NextResponse.json(
         {
           error:
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    if (!user || !canAccessLavajam(user.role)) {
+    if (!user || !canAccessLavajam(user.role, user)) {
       return NextResponse.json(
         { error: 'Permission Denied: Only Major and Treasurer can record financial contributions.' },
         { status: 403 }
@@ -158,7 +158,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    if (!user || !canAccessLavajam(user.role)) {
+    if (!user || !canAccessLavajam(user.role, user)) {
       return NextResponse.json({ error: 'Permission Denied' }, { status: 403 });
     }
 
@@ -207,7 +207,7 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    if (!user || !canAccessLavajam(user.role)) {
+    if (!user || !canAccessLavajam(user.role, user)) {
       return NextResponse.json({ error: 'Permission Denied' }, { status: 403 });
     }
 

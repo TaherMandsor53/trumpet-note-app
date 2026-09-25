@@ -1,4 +1,5 @@
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { createApi, fetchBaseQuery, BaseQueryFn, FetchArgs, FetchBaseQueryError } from '@reduxjs/toolkit/query/react';
+import { logout } from '@/store/authSlice';
 import {
   User,
   Tune,
@@ -9,11 +10,40 @@ import {
   DriveFolderSyncResult,
 } from '@/types/band';
 
+const rawBaseQuery = fetchBaseQuery({
+  baseUrl: '/api',
+});
+
+const baseQueryWithSessionCheck: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryError> = async (
+  args,
+  api,
+  extraOptions
+) => {
+  const result = await rawBaseQuery(args, api, extraOptions);
+
+  if (result.error && result.error.status === 401) {
+    const urlStr = typeof args === 'string' ? args : args.url;
+    const isAuthRoute = urlStr.includes('/auth/login') || urlStr.includes('/auth/forgot-password');
+    if (!isAuthRoute && typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('tsg_session_expires_at');
+        sessionStorage.clear();
+      } catch (e) {
+        // ignore
+      }
+      api.dispatch(logout());
+      if (window.location.pathname !== '/') {
+        window.location.href = '/?timeout=true';
+      }
+    }
+  }
+
+  return result;
+};
+
 export const bandApi = createApi({
   reducerPath: 'bandApi',
-  baseQuery: fetchBaseQuery({
-    baseUrl: '/api',
-  }),
+  baseQuery: baseQueryWithSessionCheck,
   tagTypes: ['Users', 'Financials', 'PersonalFinancials', 'Attendance', 'Reports', 'Tunes', 'Expenses'],
   endpoints: (builder) => ({
     // Auth

@@ -56,6 +56,7 @@ export interface LavajamRecord {
   userId?: string;
   userName: string;
   fundType?: 'Lavajam' | 'Hoob';
+  role?: string;
   section?: InstrumentSection | string;
   year?: number | string;
   month?: string;

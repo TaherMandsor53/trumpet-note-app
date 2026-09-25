@@ -42,6 +42,22 @@ function getDatabase() {
     if (!globalThis.__bandDatabase.expenses) {
       globalThis.__bandDatabase.expenses = [...INITIAL_EXPENSES];
     }
+    // Clean up and ensure accurate financials in memory
+    if (globalThis.__bandDatabase.financials) {
+      globalThis.__bandDatabase.financials = globalThis.__bandDatabase.financials
+        .filter(f => {
+          const name = (f.userName || '').toUpperCase();
+          if (name.includes('ZOZWALA')) return false;
+          if (name.includes('HUSSAIN HANNANBHAI') || (name.includes('HUSSAIN') && name.includes('MULLAMITHAWALA'))) return false;
+          return true;
+        })
+        .map(f => {
+          if ((f.userName || '').toUpperCase().includes('VALINABU')) {
+            return { ...f, section: 'Major', role: 'Major' };
+          }
+          return f;
+        });
+    }
     // Ensure all INITIAL_USERS from Member Details sheet are present and up-to-date in memory
     let existing = globalThis.__bandDatabase.users.filter(u => {
       const its = String(u.itsNumber || '').trim();

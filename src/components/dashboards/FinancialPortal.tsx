@@ -93,15 +93,55 @@ export function FinancialPortal() {
   const users = usersData?.users || [];
   const availableYears = finData?.years && finData.years.length > 0 ? finData.years : ['2026', '2025', '2024'];
 
+  // Helper to resolve Section display (MUFADDAL ABIZARBHAI VALINABU displays 'Major' instead of 'Trumpet')
+  const getDisplaySection = (record: LavajamRecord) => {
+    const uName = (record.userName || '').toUpperCase();
+    if (uName.includes('VALINABU')) return 'Major';
+    return record.section || 'General';
+  };
+
+  // Helper to resolve and align accurate Role with Member Name
+  const getMemberRole = (record: LavajamRecord) => {
+    if (record.fundType === 'Hoob') return 'Hoob Contributor';
+    const normRec = (record.userName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (normRec.includes('valinabu')) return 'Major';
+
+    const matchedUser = users.find(u => {
+      if (record.userId && u.id === record.userId) return true;
+      const normU = (u.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      return normU === normRec || normU.includes(normRec) || normRec.includes(normU);
+    });
+
+    if (matchedUser) {
+      if (matchedUser.role === 'Treasurer' && matchedUser.section === 'Trumpet') {
+        return 'Treasurer & Trumpet Member';
+      }
+      if (matchedUser.role === 'Treasurer' && matchedUser.section === 'SideDrum') {
+        return 'Treasurer & SideDrum Member';
+      }
+      return matchedUser.role || matchedUser.rank || 'Band Member';
+    }
+    return record.role || 'Band Member';
+  };
+
   // Filtered records for Contributions
   const filteredContributions = records.filter(r => {
+    // Strictly exclude M ISMAIL SH YUSUFBHAI ZOZWALA and HUSSAIN HANNANBHAI MULLAMITHAWALA
+    const uName = (r.userName || '').toUpperCase();
+    if (uName.includes('ZOZWALA')) return false;
+    if (uName.includes('HUSSAIN HANNANBHAI') || (uName.includes('HUSSAIN') && uName.includes('MULLAMITHAWALA'))) return false;
+
+    const displaySec = getDisplaySection(r);
+    const memberRole = getMemberRole(r);
+
     const matchesSearch =
       r.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (r.fundType && r.fundType.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (r.section && r.section.toLowerCase().includes(searchTerm.toLowerCase()));
+      displaySec.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      memberRole.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
-    const matchesSection = sectionFilter === 'All' || r.section === sectionFilter;
+    const matchesSection = sectionFilter === 'All' || displaySec === sectionFilter || r.section === sectionFilter;
 
     return matchesSearch && matchesStatus && matchesSection;
   });
@@ -179,10 +219,15 @@ export function FinancialPortal() {
       }
 
       const amt = Number(formAmount) || 0;
+      const isMufaddal = (contributorName || '').toUpperCase().includes('VALINABU');
+      const resolvedSection = isMufaddal ? 'Major' : (memberObj?.section || (fundType === 'Hoob' ? 'External / Hoob' : 'General'));
+
       await createFinancialRecord({
         fundType,
         userId: fundType === 'Lavajam' ? formUserId : undefined,
         userName: contributorName,
+        section: resolvedSection,
+        role: isMufaddal ? 'Major' : (memberObj?.role || undefined),
         year: formYear,
         amount: amt,
         status: amt > 0 ? 'Paid' : 'Unpaid',
@@ -207,13 +252,17 @@ export function FinancialPortal() {
       const contributorName = fundType === 'Lavajam' ? (memberObj?.name || editingContribution.userName) : formHoobName.trim();
 
       const amt = Number(formAmount) || 0;
+      const isMufaddal = (contributorName || '').toUpperCase().includes('VALINABU');
+      const resolvedSection = isMufaddal ? 'Major' : (fundType === 'Lavajam' && memberObj ? memberObj.section : (editingContribution.section || 'External / Hoob'));
+
       await updateFinancialRecord({
         id: editingContribution.id,
         originalName: editingContribution.userName,
         fundType,
         userId: fundType === 'Lavajam' ? formUserId : undefined,
         userName: contributorName,
-        section: fundType === 'Lavajam' && memberObj ? memberObj.section : (editingContribution.section || 'External / Hoob'),
+        section: resolvedSection,
+        role: isMufaddal ? 'Major' : (memberObj?.role || editingContribution.role),
         year: formYear,
         amount: amt,
         status: amt > 0 ? 'Paid' : 'Unpaid',
@@ -464,6 +513,7 @@ export function FinancialPortal() {
               className="text-xs w-36"
             >
               <option value="All">All Sections</option>
+              <option value="Major">Major</option>
               <option value="Trumpet">Trumpet</option>
               <option value="Saxophone">Saxophone</option>
               <option value="Euphonium">Euphonium</option>
@@ -503,72 +553,104 @@ export function FinancialPortal() {
                 No contribution records matching the current filters.
               </div>
             ) : (
-              filteredContributions.map(record => (
-                <div
-                  key={record.id}
-                  className="p-3.5 rounded-xl border border-border/70 bg-card/90 space-y-2.5 shadow-xs"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-0.5 min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-bold text-sm text-foreground break-words">{record.userName}</span>
-                        {record.fundType === 'Hoob' ? (
-                          <Badge variant="gold" className="text-[9px] py-0 px-1 font-bold">
-                            Hoob
+              filteredContributions.map(record => {
+                const displaySection = getDisplaySection(record);
+                const memberRole = getMemberRole(record);
+                const isMajorSection = displaySection === 'Major';
+
+                return (
+                  <div
+                    key={record.id}
+                    className="p-3.5 rounded-xl border border-border/70 bg-card/90 space-y-2.5 shadow-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1.5 min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-sm text-foreground break-words">{record.userName}</span>
+                          {record.fundType === 'Hoob' ? (
+                            <Badge variant="gold" className="text-[9px] py-0 px-1 font-bold">
+                              Hoob
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[9px] py-0 px-1 font-medium">
+                              Lavajam
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Role aligned with Member Name */}
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground">Role:</span>
+                          <Badge
+                            variant={
+                              memberRole.includes('Major')
+                                ? 'gold'
+                                : memberRole.includes('Treasurer')
+                                ? 'emerald'
+                                : 'secondary'
+                            }
+                            className="text-[9px] py-0 px-1.5 font-medium border-border/60"
+                          >
+                            {memberRole}
                           </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[9px] py-0 px-1 font-medium">
-                            Lavajam
-                          </Badge>
-                        )}
+                        </div>
+
+                        {/* Section with Major badge for Mufaddal */}
+                        <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <span className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground">Section:</span>
+                          {isMajorSection ? (
+                            <Badge variant="gold" className="text-[9px] py-0 px-1.5 font-bold border-amber-500/40 bg-amber-500/10 text-amber-500">
+                              Major
+                            </Badge>
+                          ) : (
+                            <span className="text-foreground font-medium">{displaySection}</span>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {record.section || 'General'}
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Badge
+                          variant={record.status === 'Paid' ? 'emerald' : 'destructive'}
+                          className="text-[10px] font-bold"
+                        >
+                          {record.status}
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenEditContribution(record)}
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-primary bg-muted/20"
+                          title="Edit Record"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteContribution(record)}
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive bg-muted/20"
+                          title={record.fundType === 'Hoob' ? 'Delete Hoob Contributor' : 'Clear Contribution (Mark Unpaid)'}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <Badge
-                        variant={record.status === 'Paid' ? 'emerald' : 'destructive'}
-                        className="text-[10px] font-bold"
-                      >
-                        {record.status}
-                      </Badge>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleOpenEditContribution(record)}
-                        className="h-7 w-7 p-0 text-muted-foreground hover:text-primary bg-muted/20"
-                        title="Edit Record"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteContribution(record)}
-                        className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive bg-muted/20"
-                        title={record.fundType === 'Hoob' ? 'Delete Hoob Contributor' : 'Clear Contribution (Mark Unpaid)'}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
+                    <div className="flex items-center justify-between pt-2 border-t border-border/60 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-muted-foreground font-mono">
+                          Year {record.year || selectedYear}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-sm text-foreground">
+                          {record.amount > 0 ? formatCurrency(record.amount) : '₹0'}
+                        </span>
+                      </div>
                     </div>
                   </div>
-
-                  <div className="flex items-center justify-between pt-2 border-t border-border/60 text-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-muted-foreground font-mono">
-                        Year {record.year || selectedYear}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-bold text-sm text-foreground">
-                        {record.amount > 0 ? formatCurrency(record.amount) : '₹0'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -592,66 +674,96 @@ export function FinancialPortal() {
                     </td>
                   </tr>
                 ) : (
-                  filteredContributions.map(record => (
-                    <tr key={record.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="font-semibold text-foreground flex items-center gap-1.5">
-                          <span>{record.userName}</span>
-                          {record.fundType === 'Hoob' ? (
-                            <Badge variant="gold" className="text-[9px] py-0 px-1 font-bold">
-                              Hoob
+                  filteredContributions.map(record => {
+                    const displaySection = getDisplaySection(record);
+                    const memberRole = getMemberRole(record);
+                    const isMajorSection = displaySection === 'Major';
+
+                    return (
+                      <tr key={record.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="flex flex-col gap-1">
+                            <div className="font-semibold text-foreground flex items-center gap-1.5 flex-wrap">
+                              <span>{record.userName}</span>
+                              {record.fundType === 'Hoob' ? (
+                                <Badge variant="gold" className="text-[9px] py-0 px-1 font-bold">
+                                  Hoob
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[9px] py-0 px-1 font-medium">
+                                  Lavajam
+                                </Badge>
+                              )}
+                            </div>
+                            {/* Role aligned with Member Name */}
+                            <div className="flex items-center gap-1.5 text-[11px]">
+                              <span className="text-[10px] uppercase font-semibold tracking-wider text-muted-foreground">Role:</span>
+                              <Badge
+                                variant={
+                                  memberRole.includes('Major')
+                                    ? 'gold'
+                                    : memberRole.includes('Treasurer')
+                                    ? 'emerald'
+                                    : 'secondary'
+                                }
+                                className="text-[9px] py-0 px-1.5 font-medium border-border/60"
+                              >
+                                {memberRole}
+                              </Badge>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          {isMajorSection ? (
+                            <Badge variant="gold" className="text-[10px] font-bold border-amber-500/40 bg-amber-500/10 text-amber-500">
+                              Major
                             </Badge>
                           ) : (
-                            <Badge variant="outline" className="text-[9px] py-0 px-1 font-medium">
-                              Lavajam
+                            <Badge variant="outline" className="text-[10px]">
+                              {displaySection}
                             </Badge>
                           )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <Badge variant="outline" className="text-[10px]">
-                          {record.section || 'General'}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-4 font-bold text-foreground">
-                        {record.amount > 0 ? (
-                          formatCurrency(record.amount)
-                        ) : (
-                          <span className="text-muted-foreground font-mono">₹0</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <Badge
-                          variant={record.status === 'Paid' ? 'emerald' : 'destructive'}
-                          className="text-[10px] font-bold"
-                        >
-                          {record.status}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenEditContribution(record)}
-                            className="h-7 w-7 p-0 text-muted-foreground hover:text-primary"
-                            title="Edit Record"
+                        </td>
+                        <td className="py-3 px-4 font-bold text-foreground">
+                          {record.amount > 0 ? (
+                            formatCurrency(record.amount)
+                          ) : (
+                            <span className="text-muted-foreground font-mono">₹0</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <Badge
+                            variant={record.status === 'Paid' ? 'emerald' : 'destructive'}
+                            className="text-[10px] font-bold"
                           >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteContribution(record)}
-                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                            title={record.fundType === 'Hoob' ? 'Delete Hoob Contributor' : 'Clear Contribution (Mark Unpaid)'}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                            {record.status}
+                          </Badge>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleOpenEditContribution(record)}
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-primary"
+                              title="Edit Record"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteContribution(record)}
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                              title={record.fundType === 'Hoob' ? 'Delete Hoob Contributor' : 'Clear Contribution (Mark Unpaid)'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

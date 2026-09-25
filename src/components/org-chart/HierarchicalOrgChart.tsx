@@ -179,7 +179,7 @@ export function HierarchicalOrgChart() {
   return (
     <div className="w-full max-w-7xl mx-auto py-4 px-2 sm:px-4">
       {/* Workday Header Banner */}
-      <div className="rounded-3xl border border-amber-900/20 dark:border-amber-500/15 bg-card/80 dark:bg-[#25130B]/80 backdrop-blur-xl p-6 sm:p-8 shadow-xl mb-8">
+      <div className="rounded-3xl border border-amber-900/20 dark:border-amber-500/15 bg-card/80 dark:bg-[#25130B]/80 backdrop-blur-xl p-4 sm:p-6 md:p-8 shadow-xl mb-8">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-[#D97736]/30 bg-[#D97736]/10 text-[#D97736] text-xs font-semibold uppercase tracking-widest mb-2 backdrop-blur">
@@ -193,47 +193,50 @@ export function HierarchicalOrgChart() {
             </p>
           </div>
 
-          {/* Quick Tree Controls */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Quick Tree Controls: Responsive 3-Col Equal Grid on Mobile, Flex on Desktop */}
+          <div className="grid grid-cols-3 gap-1.5 sm:gap-2 w-full sm:w-auto sm:flex sm:items-center shrink-0">
             <Button
               variant="outline"
               size="sm"
               onClick={expandAll}
-              className="text-xs gap-1 h-8 rounded-full"
+              className="text-[11px] sm:text-xs gap-1 sm:gap-1.5 h-8.5 rounded-full px-2 sm:px-3 justify-center w-full sm:w-auto"
               title="Expand all branches"
             >
-              <Maximize2 className="w-3.5 h-3.5 text-[#D97736]" /> Expand All
+              <Maximize2 className="w-3.5 h-3.5 text-[#D97736] shrink-0" />
+              <span className="truncate">Expand All</span>
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={collapseAll}
-              className="text-xs gap-1 h-8 rounded-full"
+              className="text-[11px] sm:text-xs gap-1 sm:gap-1.5 h-8.5 rounded-full px-2 sm:px-3 justify-center w-full sm:w-auto"
               title="Collapse all branches"
             >
-              <Minimize2 className="w-3.5 h-3.5 text-muted-foreground" /> Collapse All
+              <Minimize2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <span className="truncate">Collapse All</span>
             </Button>
             <Button
               variant={viewMode === 'tree' ? 'havenly' : 'outline'}
               size="sm"
               onClick={() => setViewMode(viewMode === 'tree' ? 'compact' : 'tree')}
-              className="text-xs gap-1 h-8 rounded-full"
+              className="text-[11px] sm:text-xs gap-1 sm:gap-1.5 h-8.5 rounded-full px-2 sm:px-3.5 justify-center w-full sm:w-auto font-semibold shadow-xs"
+              title="Toggle Tree / Grid View"
             >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>{viewMode === 'tree' ? 'Tree View' : 'Grid View'}</span>
+              <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">{viewMode === 'tree' ? 'Tree View' : 'Grid View'}</span>
             </Button>
           </div>
         </div>
 
-        {/* Search & Section Filter Bar */}
-        <div className="mt-6 pt-5 border-t border-border/80 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="relative w-full sm:w-72">
+        {/* Search & Section Filter Bar: Stack neatly and allow smooth horizontal scroll on mobile */}
+        <div className="mt-5 pt-4 border-t border-border/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 w-full">
+          <div className="relative w-full sm:w-72 shrink-0">
             <Search className="w-4 h-4 absolute left-3 top-2.5 text-muted-foreground" />
             <Input
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               placeholder="Search member, rank, or role..."
-              className="pl-9 h-9 text-xs rounded-full bg-background/70"
+              className="pl-9 h-9 text-xs rounded-full bg-background/70 w-full"
             />
             {searchTerm && (
               <button
@@ -246,21 +249,23 @@ export function HierarchicalOrgChart() {
           </div>
 
           {/* Section Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto max-w-full no-scrollbar py-1">
-            {['All', 'Trumpet', 'Saxophone', 'Euphonium', 'Trombone', 'Dish', 'SideDrum'].map(sec => (
-              <button
-                key={sec}
-                onClick={() => setSelectedSection(sec)}
-                className={cn(
-                  'px-3 py-1 text-xs rounded-full border font-medium transition-all shrink-0',
-                  selectedSection === sec
-                    ? 'bg-[#D97736] text-white border-[#D97736] shadow-sm font-semibold'
-                    : 'bg-background/60 text-muted-foreground border-border/70 hover:bg-muted'
-                )}
-              >
-                {sec === 'SideDrum' ? 'SideDrum/BaseDrum' : sec}
-              </button>
-            ))}
+          <div className="w-full sm:w-auto overflow-hidden">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 w-full max-w-full touch-pan-x">
+              {['All', 'Trumpet', 'Saxophone', 'Euphonium', 'Trombone', 'Dish', 'SideDrum'].map(sec => (
+                <button
+                  key={sec}
+                  onClick={() => setSelectedSection(sec)}
+                  className={cn(
+                    'px-3 py-1.5 text-xs rounded-full border font-medium transition-all shrink-0 cursor-pointer',
+                    selectedSection === sec
+                      ? 'bg-[#D97736] text-white border-[#D97736] shadow-sm font-semibold'
+                      : 'bg-background/60 text-muted-foreground border-border/70 hover:bg-muted'
+                  )}
+                >
+                  {sec === 'SideDrum' ? 'SideDrum/BaseDrum' : sec}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -594,10 +599,17 @@ export function HierarchicalOrgChart() {
 
               <div>
                 <h4 className="font-bold text-base text-foreground">{selectedUserForDetail.name}</h4>
-                <div className="flex items-center gap-2 mt-1">
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
                   <Badge variant="gold" className="text-[10px] py-0">
                     {selectedUserForDetail.role}
                   </Badge>
+                  {(selectedUserForDetail.rank?.toLowerCase().includes('treasurer') ||
+                    selectedUserForDetail.name.includes('TAHA MAZHARBHAI KUNDAWALA') ||
+                    selectedUserForDetail.name.includes('HUSAIN JUJARBHAI KUNDAWALA')) && (
+                    <Badge variant="emerald" className="text-[10px] py-0 flex items-center gap-1">
+                      <Coins className="w-2.5 h-2.5" /> Treasurer
+                    </Badge>
+                  )}
                   <span className="text-xs text-muted-foreground">• {selectedUserForDetail.section} Section</span>
                 </div>
                 <p className="text-[11px] text-emerald-500 font-medium flex items-center gap-1 mt-1">

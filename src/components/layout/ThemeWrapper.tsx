@@ -5,6 +5,7 @@ import { useSelector } from 'react-redux';
 import { RootState } from '@/store';
 
 import { ToastProvider } from '@/components/ui/toast';
+import { SessionTimeoutProvider } from '@/components/auth/SessionTimeoutProvider';
 
 export function ThemeWrapper({ children }: { children: React.ReactNode }) {
   const theme = useSelector((state: RootState) => state.theme.theme);
@@ -18,7 +19,9 @@ export function ThemeWrapper({ children }: { children: React.ReactNode }) {
 
   return (
     <ToastProvider>
-      <div className="min-h-screen bg-musical-pattern text-foreground">{children}</div>
+      <SessionTimeoutProvider>
+        <div className="min-h-screen bg-musical-pattern text-foreground">{children}</div>
+      </SessionTimeoutProvider>
     </ToastProvider>
   );
 }

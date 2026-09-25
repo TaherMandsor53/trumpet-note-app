@@ -32,7 +32,7 @@ export async function signUserToken(user: User): Promise<string> {
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
-    .setExpirationTime('30d')
+    .setExpirationTime('2h')
     .sign(JWT_SECRET);
 }
 

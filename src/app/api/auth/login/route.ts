@@ -88,14 +88,14 @@ export async function POST(req: NextRequest) {
       message: `Welcome, ${user.name}!`,
     });
 
-    // Set HTTP-only secure cookie
+    // Set HTTP-only secure cookie for 2 hours (7200 seconds)
     response.cookies.set({
       name: AUTH_COOKIE_NAME,
       value: token,
       httpOnly: true,
       path: '/',
       sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60, // 30 days
+      maxAge: 2 * 60 * 60, // 2 hours (7200 seconds)
     });
 
     return response;

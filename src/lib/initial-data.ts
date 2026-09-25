@@ -148,23 +148,34 @@ export const INITIAL_TUNES: Tune[] = [
 ];
 
 export const INITIAL_LAVAJAM: LavajamRecord[] = [
-  ...(members40 as User[]).map((u, i) => ({
-    id: `lav-${String(i + 1).padStart(3, '0')}`,
-    date: '24/09/2026',
-    userId: u.id,
-    userName: u.name,
-    fundType: 'Lavajam' as const,
-    section: u.section,
-    year: 2026,
-    month: 'September',
-    amount: 1500,
-    status: (i % 4 === 0 ? 'Pending' : 'Paid') as LavajamStatus,
-    paidAt: i % 4 !== 0 ? daysAgo(2 + (i % 10)) : undefined,
-    paymentMethod: (i % 2 === 0 ? 'UPI' : 'Cash') as 'UPI' | 'Cash',
-    transactionRef: i % 2 === 0 ? `UPI/202609/${100000 + i}` : undefined,
-    receiptNo: `REC-2026-${String(i + 1).padStart(3, '0')}`,
-    notes: i % 4 === 0 ? 'Monthly contribution pending verification' : 'Band uniform & maintenance contribution',
-  })),
+  ...(members40 as User[])
+    .filter(u => {
+      const uname = (u.name || '').toUpperCase();
+      if (uname.includes('ZOZWALA')) return false;
+      if (uname.includes('HUSSAIN HANNANBHAI') || (uname.includes('HUSSAIN') && uname.includes('MULLAMITHAWALA'))) return false;
+      return true;
+    })
+    .map((u, i) => {
+      const isMufaddal = (u.name || '').toUpperCase().includes('VALINABU');
+      return {
+        id: `lav-${String(i + 1).padStart(3, '0')}`,
+        date: '24/09/2026',
+        userId: u.id,
+        userName: u.name,
+        fundType: 'Lavajam' as const,
+        role: isMufaddal ? 'Major' : u.role,
+        section: isMufaddal ? 'Major' : u.section,
+        year: 2026,
+        month: 'September',
+        amount: 1000,
+        status: 'Paid' as LavajamStatus,
+        paidAt: daysAgo(2 + (i % 10)),
+        paymentMethod: (i % 2 === 0 ? 'UPI' : 'Cash') as 'UPI' | 'Cash',
+        transactionRef: i % 2 === 0 ? `UPI/202609/${100000 + i}` : undefined,
+        receiptNo: `REC-2026-${String(i + 1).padStart(3, '0')}`,
+        notes: 'Band uniform & maintenance contribution',
+      };
+    }),
   {
     id: 'lav-hoob-001',
     date: '24/09/2026',

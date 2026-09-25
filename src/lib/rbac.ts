@@ -196,17 +196,18 @@ export function canManageSectionUsers(role: Role, targetSection: InstrumentSecti
 
 /**
  * Permission: Lavajam Management access
- * Exclusively restricted to Major (including Overall Major) and Treasurer roles only.
+ * Exclusively restricted to Major (Overall Major) and Treasurer roles only.
+ * Section Majors and regular Members do NOT have access.
  */
 export function canAccessLavajam(role: Role, user?: { name?: string; rank?: string; role?: string } | null): boolean {
-  return isOverallMajor(role) || isTreasurer(role, user) || isInstrumentMajor(role) || String(role).includes('Major');
+  return isOverallMajor(role) || isTreasurer(role, user);
 }
 
 /**
  * Permission: Full CRUD access to Lavajam contribution ledger and stats
  */
 export function canAccessFullFinancials(role: Role, user?: { name?: string; rank?: string; role?: string } | null): boolean {
-  return canAccessLavajam(role, user);
+  return isOverallMajor(role) || isTreasurer(role, user);
 }
 
 /**

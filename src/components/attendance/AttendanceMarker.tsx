@@ -220,29 +220,47 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
   };
 
   // Scoped members list:
-  // ONLY Overall Major can view all members. All other members (including Section Majors) can only view their own particular attendance record.
+  // Overall Major views all members across all sections.
+  // Section Major views all members in their specific instrument section.
+  // Regular Members view their own particular attendance record.
   const filteredUsers = React.useMemo(() => {
-    if (!isAuthorizedMajor) {
-      if (!currentUser) return [];
-      const matches = users.filter(
-        u =>
-          u.id === currentUser.id ||
-          (currentUser.itsNumber && u.itsNumber === currentUser.itsNumber) ||
-          (u.name && currentUser.name && u.name.trim().toUpperCase() === currentUser.name.trim().toUpperCase())
-      );
-      return matches.length > 0 ? matches : [currentUser];
+    if (isAuthorizedMajor) {
+      return users.filter(u => {
+        const matchesSection = sectionFilter === 'All' || u.section === sectionFilter;
+        const matchesSearch =
+          !searchQuery ||
+          u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (u.itsNumber && u.itsNumber.includes(searchQuery)) ||
+          u.role.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchesSection && matchesSearch;
+      });
     }
 
-    return users.filter(u => {
-      const matchesSection = sectionFilter === 'All' || u.section === sectionFilter;
-      const matchesSearch =
-        !searchQuery ||
-        u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (u.itsNumber && u.itsNumber.includes(searchQuery)) ||
-        u.role.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesSection && matchesSearch;
-    });
-  }, [isAuthorizedMajor, currentUser, users, sectionFilter, searchQuery]);
+    if (isSectionMajor) {
+      return users.filter(u => {
+        const inSection =
+          u.section === managedSection ||
+          ((u.section as string) === 'SideDrum/BaseDrum' && managedSection === 'SideDrum') ||
+          (managedSection === 'SideDrum' && ((u.section as string) === 'SideDrum' || (u.section as string) === 'BaseDrum'));
+        const matchesSearch =
+          !searchQuery ||
+          u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (u.itsNumber && u.itsNumber.includes(searchQuery)) ||
+          u.role.toLowerCase().includes(searchQuery.toLowerCase());
+        return inSection && matchesSearch;
+      });
+    }
+
+    // Regular member: only self
+    if (!currentUser) return [];
+    const matches = users.filter(
+      u =>
+        u.id === currentUser.id ||
+        (currentUser.itsNumber && u.itsNumber === currentUser.itsNumber) ||
+        (u.name && currentUser.name && u.name.trim().toUpperCase() === currentUser.name.trim().toUpperCase())
+    );
+    return matches.length > 0 ? matches : [currentUser];
+  }, [isAuthorizedMajor, isSectionMajor, managedSection, currentUser, users, sectionFilter, searchQuery]);
 
   // Count current selections
   const presentCount = filteredUsers.filter(u => statusMap[u.id]?.status === 'Present').length;
@@ -261,10 +279,20 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
           <div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 text-xs font-semibold mb-1">
               <Calendar className="w-3.5 h-3.5 text-[#D97736]" />
-              {isAuthorizedMajor ? 'Practice Hazri (Attendance Module)' : 'My Personal Practice Hazri'}
+              {isAuthorizedMajor
+                ? 'Practice Hazri (Attendance Module)'
+                : isSectionMajor
+                ? `${managedSection} Section Hazri (Attendance)`
+                : 'My Personal Practice Hazri'}
             </div>
             <CardTitle className="text-xl font-serif font-black tracking-tight text-foreground flex items-center gap-2">
-              <span>{isAuthorizedMajor ? 'Attendance Details Sync' : 'My Attendance Record'}</span>
+              <span>
+                {isAuthorizedMajor
+                  ? 'Attendance Details Sync'
+                  : isSectionMajor
+                  ? `${managedSection} Section Team Attendance`
+                  : 'My Attendance Record'}
+              </span>
               <Badge variant="outline" className="text-[10px] uppercase font-mono tracking-wider text-emerald-400 border-emerald-500/30">
                 Google Drive Live
               </Badge>
@@ -272,6 +300,8 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
             <CardDescription className="text-xs text-muted-foreground mt-0.5">
               {isAuthorizedMajor
                 ? 'Attendance records are synchronized with the Google Drive "Attendance Details" sheet.'
+                : isSectionMajor
+                ? `Viewing practice attendance records for all ${managedSection} section team members.`
                 : 'Viewing your personal attendance record. Only Overall Major can mark and view all band members.'}
             </CardDescription>
           </div>
@@ -289,7 +319,7 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                {isAuthorizedMajor ? 'Hazri Marker' : 'My Hazri Record'}
+                {isAuthorizedMajor ? 'Hazri Marker' : isSectionMajor ? `${managedSection} Team Hazri` : 'My Hazri Record'}
               </button>
               <button
                 type="button"
@@ -305,8 +335,8 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
               </button>
             </div>
 
-            {/* Export Excel Button (Overall Major only, or personal export) */}
-            {isAuthorizedMajor && (
+            {/* Export Excel Button (Overall Major and Section Majors) */}
+            {(isAuthorizedMajor || isSectionMajor) && (
               <Button
                 type="button"
                 variant="outline"
@@ -325,15 +355,27 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
 
       {/* Role Permission Alert Notice */}
       {!isAuthorizedMajor && (
-        <div className="mx-6 mt-4 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-center justify-between gap-3">
+        <div className="mx-4 sm:mx-6 mt-4 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Lock className="w-4 h-4 text-[#D97736] shrink-0" />
+            {isSectionMajor ? (
+              <ShieldCheck className="w-4 h-4 text-[#D97736] shrink-0" />
+            ) : (
+              <Lock className="w-4 h-4 text-[#D97736] shrink-0" />
+            )}
             <span>
-              <strong>Personal Attendance Record:</strong> You can only view your own particular attendance record. Only the Overall Major has authorization to mark and view attendance for all band members (including Section Majors).
+              {isSectionMajor ? (
+                <>
+                  <strong>{managedSection} Section Roster:</strong> Viewing attendance records for all {filteredUsers.length} musicians in your section. Global attendance marking and sheet synchronization is maintained by the Overall Major.
+                </>
+              ) : (
+                <>
+                  <strong>Personal Attendance Record:</strong> You can only view your own particular attendance record. Only the Overall Major has authorization to mark and view attendance for all band members (including Section Majors).
+                </>
+              )}
             </span>
           </div>
-          <Badge variant="outline" className="border-amber-500/40 text-amber-300 text-[10px] shrink-0 font-mono">
-            Personal Record
+          <Badge variant="outline" className="border-amber-500/40 text-amber-300 text-[10px] shrink-0 font-mono self-start sm:self-auto">
+            {isSectionMajor ? `${managedSection} Section (${filteredUsers.length})` : 'Personal Record'}
           </Badge>
         </div>
       )}
@@ -436,12 +478,7 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <Filter className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                {!isAuthorizedMajor ? (
-                  <span className="text-xs font-bold text-[#E5A93C] bg-amber-500/15 border border-amber-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-[#D97736]" />
-                    Personal Hazri Record • {currentUser?.name}
-                  </span>
-                ) : (
+                {isAuthorizedMajor ? (
                   <>
                     <Select
                       value={sectionFilter}
@@ -464,6 +501,25 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                       className="text-xs h-8 w-44 bg-card"
                     />
                   </>
+                ) : isSectionMajor ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-[#E5A93C] bg-amber-500/15 border border-amber-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-[#D97736]" />
+                      {managedSection} Section ({filteredUsers.length} Members)
+                    </span>
+                    <Input
+                      type="text"
+                      placeholder="Search section player / ITS..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      className="text-xs h-8 w-44 sm:w-52 bg-card"
+                    />
+                  </div>
+                ) : (
+                  <span className="text-xs font-bold text-[#E5A93C] bg-amber-500/15 border border-amber-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#D97736]" />
+                    Personal Hazri Record • {currentUser?.name}
+                  </span>
                 )}
               </div>
 
@@ -796,15 +852,21 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
           <div className="p-3.5 rounded-xl bg-muted/30 border border-border/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                {isAuthorizedMajor ? 'Attendance Details Sheet Preview (Google Drive Matrix)' : 'My Attendance History Matrix'}
+                {isAuthorizedMajor
+                  ? 'Attendance Details Sheet Preview (Google Drive Matrix)'
+                  : isSectionMajor
+                  ? `${managedSection} Section Attendance History Matrix`
+                  : 'My Attendance History Matrix'}
               </h4>
               <p className="text-xs text-foreground mt-0.5">
                 {isAuthorizedMajor
                   ? `Exact structure as in Google Sheet: Column A shows Full Name, top row shows Dates (${formatDDMMYYYY(date)}), cells display Present, Absent, or Late.`
+                  : isSectionMajor
+                  ? `Attendance entries recorded for all ${managedSection} section team members across previous practice sessions.`
                   : 'Your personal attendance entries recorded across previous practice sessions.'}
               </p>
             </div>
-            {isAuthorizedMajor && (
+            {(isAuthorizedMajor || isSectionMajor) && (
               <Button
                 type="button"
                 variant="havenly"

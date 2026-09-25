@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    if (!canAccessLavajam(user.role)) {
+    if (!canAccessLavajam(user.role, user)) {
       return NextResponse.json(
         { error: 'Access Restricted: Only Major and Treasurer can view expenses.' },
         { status: 403 }
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    if (!user || !canAccessLavajam(user.role)) {
+    if (!user || !canAccessLavajam(user.role, user)) {
       return NextResponse.json(
         { error: 'Permission Denied: Only Major and Treasurer can record expenses.' },
         { status: 403 }
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    if (!user || !canAccessLavajam(user.role)) {
+    if (!user || !canAccessLavajam(user.role, user)) {
       return NextResponse.json({ error: 'Permission Denied' }, { status: 403 });
     }
 
@@ -142,7 +142,7 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    if (!user || !canAccessLavajam(user.role)) {
+    if (!user || !canAccessLavajam(user.role, user)) {
       return NextResponse.json({ error: 'Permission Denied' }, { status: 403 });
     }
 

@@ -100,10 +100,22 @@ function getSheetProp(obj: any, ...keys: string[]): string {
  * Attempts to fetch live member details from Google Sheet.
  * Checks Apps Script Web App first, then public CSV export, falling back to initialized memory DB.
  */
-export function normalizeSheetRoleAndSection(rawRole: string): { role: Role; section: InstrumentSection } {
+export function normalizeSheetRoleAndSection(rawRole: string, rawName?: string): { role: Role; section: InstrumentSection } {
   const r = (rawRole || '').trim().toLowerCase();
+  const n = (rawName || '').trim().toUpperCase();
 
-  // 1. Section Majors
+  // 1. Appointed Specific Member Mappings
+  if (n.includes('HUSAIN JUJARBHAI KUNDAWALA') || (r.includes('treasurer') && (r.includes('trumpet') || n.includes('HUSAIN')))) {
+    return { role: 'Treasurer', section: 'Trumpet' };
+  }
+  if (n.includes('TAHA MAZHARBHAI KUNDAWALA')) {
+    return { role: 'Treasurer', section: 'SideDrum' };
+  }
+  if (n.includes('HUSAIN BURHANBHAI KADVALWALA')) {
+    return { role: 'Instrument Maintainer', section: 'Trumpet' };
+  }
+
+  // 2. Section Majors
   if (r.includes('sidedrum major') || r.includes('side drum major') || r.includes('sidedrum/basedrum major')) {
     return { role: 'SideDrum Major', section: 'SideDrum' };
   }
@@ -123,7 +135,7 @@ export function normalizeSheetRoleAndSection(rawRole: string): { role: Role; sec
     return { role: 'Trombone Major', section: 'Trombone' };
   }
 
-  // 2. Executive Leadership & Support
+  // 3. Executive Leadership & Support
   if (r === 'major' || r.includes('overall major') || r.includes('band commander') || r.includes('band major')) {
     return { role: 'Major', section: 'Trumpet' };
   }
@@ -214,16 +226,21 @@ export async function syncMemberDetailsFromSheet(): Promise<{
         const records = Array.isArray(data) ? data : data.members || data.data || [];
         if (records.length > 0) {
           const mappedUsers: User[] = records.map((r: any, index: number) => {
-            const rawRole = getSheetProp(r, 'Role', 'role', '6. Select Your Instruments ', 'Select Your Instruments');
-            const { role, section } = normalizeSheetRoleAndSection(rawRole);
             const itsNumber = getSheetProp(r, 'Its number', '1. Its number ', 'itsNumber', 'itsnumber', 'ItsNumber');
             const name = getSheetProp(r, 'Full Name', '2. Full Name', 'name', 'Name', 'fullName', 'FullName') || 'Band Member';
+            const rawRole = getSheetProp(r, 'Role', 'role', '6. Select Your Instruments ', 'Select Your Instruments');
+            const { role, section } = normalizeSheetRoleAndSection(rawRole, name);
             const username = getSheetProp(r, 'UserName', '7. UserName', 'username', 'Username');
             const email = getSheetProp(r, 'Email', 'email') || (username.includes('@') ? username : `${username || 'member'}@tsgband.com`);
             const password = getSheetProp(r, 'Password', '8. Password', 'password', 'Password') || '786110515253';
             const phone = getSheetProp(r, 'Mobile Number', '4. Mobile Number', 'phone', 'Phone', 'mobileNumber');
             const address = getSheetProp(r, 'Address', '3. Address', 'address', 'Address');
             const jamaat = getSheetProp(r, 'Jamaat', '5. Jamaat', 'jamaat', 'Jamaat');
+
+            const isTreasurerUser = name.toUpperCase().includes('HUSAIN JUJARBHAI KUNDAWALA') || name.toUpperCase().includes('TAHA MAZHARBHAI KUNDAWALA') || rawRole.toLowerCase().includes('treasurer');
+            const userRank = isTreasurerUser
+              ? (section === 'Trumpet' ? 'Band Treasurer & Trumpet Musician' : 'Band Treasurer & SideDrum/BaseDrum Musician')
+              : (r.rank || r.Rank || `${role}`);
 
             return {
               id: itsNumber ? `sheet-${itsNumber}` : (r.id || `sheet-user-${index + 1}`),
@@ -237,7 +254,7 @@ export async function syncMemberDetailsFromSheet(): Promise<{
               phone,
               address,
               jamaat,
-              rank: r.rank || r.Rank || `${role}`,
+              rank: userRank,
               joinedDate: r.joinedDate || new Date().toISOString().split('T')[0],
               active: r.active !== undefined ? Boolean(r.active) : true,
             };
@@ -286,10 +303,15 @@ export async function syncMemberDetailsFromSheet(): Promise<{
               const name = r.fullname || r.name || r.membername || 'Band Member';
               const password = (r.password || r.pass || '786110515253').trim();
               const rawRole = r.role || '';
-              const { role, section } = normalizeSheetRoleAndSection(rawRole);
+              const { role, section } = normalizeSheetRoleAndSection(rawRole, name);
               const phone = r.mobilenumber || r.mobile || r.phone || r.contact || '';
               const address = r.address || '';
               const jamaat = r.jamaat || '';
+
+              const isTreasurerUser = name.toUpperCase().includes('HUSAIN JUJARBHAI KUNDAWALA') || name.toUpperCase().includes('TAHA MAZHARBHAI KUNDAWALA') || rawRole.toLowerCase().includes('treasurer');
+              const userRank = isTreasurerUser
+                ? (section === 'Trumpet' ? 'Band Treasurer & Trumpet Musician' : 'Band Treasurer & SideDrum/BaseDrum Musician')
+                : (r.rank || `${section} Musician`);
 
               return {
                 id: itsNumber ? `sheet-${itsNumber}` : `sheet-user-${index + 1}`,
@@ -303,7 +325,7 @@ export async function syncMemberDetailsFromSheet(): Promise<{
                 phone,
                 address,
                 jamaat,
-                rank: r.rank || `${section} Musician`,
+                rank: userRank,
                 joinedDate: r.joineddate || new Date().toISOString().split('T')[0],
                 active: r.active ? r.active.toLowerCase() === 'true' || r.active === '1' : true,
               };
@@ -356,7 +378,15 @@ export async function syncLavajamFromGoogleSheet(targetYear?: number | string): 
 
       if (response.ok) {
         const data = await response.json();
-        const rows = data.members || [];
+        const rawRows = data.members || [];
+        // Strictly filter out M ISMAIL SH YUSUFBHAI ZOZWALA and HUSSAIN HANNANBHAI MULLAMITHAWALA
+        const rows = (Array.isArray(rawRows) ? rawRows : []).filter((r: any) => {
+          const rawName = String(r['Full Name'] || r['Name'] || r.name || r.userName || '').trim().toUpperCase();
+          if (rawName.includes('ZOZWALA')) return false;
+          if (rawName.includes('HUSSAIN HANNANBHAI') || (rawName.includes('HUSSAIN') && rawName.includes('MULLAMITHAWALA'))) return false;
+          return true;
+        });
+
         if (Array.isArray(rows) && rows.length > 0) {
           // Discover all year columns (e.g. '2026', '2025', etc.)
           const discoveredYears = new Set<string>();
@@ -390,6 +420,13 @@ export async function syncLavajamFromGoogleSheet(targetYear?: number | string): 
 
             let section = 'External / Hoob';
             let userId: string | undefined = undefined;
+            let role: string | undefined = undefined;
+
+            const isMufaddal = rawName.toUpperCase().includes('VALINABU');
+            if (isMufaddal) {
+              section = 'Major';
+              role = 'Major';
+            }
 
             if (!isHoob) {
               const normRaw = rawName.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -398,9 +435,14 @@ export async function syncLavajamFromGoogleSheet(targetYear?: number | string): 
                 return normU === normRaw || normU.includes(normRaw) || normRaw.includes(normU);
               });
               if (matchedUser) {
-                section = matchedUser.section;
+                if (!isMufaddal) {
+                  section = matchedUser.section;
+                }
                 userId = matchedUser.id;
-              } else {
+                if (!role) {
+                  role = matchedUser.role;
+                }
+              } else if (!isMufaddal) {
                 section = 'General';
               }
             }
@@ -410,6 +452,7 @@ export async function syncLavajamFromGoogleSheet(targetYear?: number | string): 
               userId,
               userName: rawName,
               fundType,
+              role,
               section,
               year: requestedYear,
               amount,
@@ -462,13 +505,123 @@ export async function syncLavajamFromGoogleSheet(targetYear?: number | string): 
     console.warn('Google Sheet Lavajam sync failed, falling back to local database/Excel:', err);
   }
 
-  // Fallback to local Excel or DB
+  // Authoritative Fallback: Read directly from local Excel file (TAHERI_SCOUT_BAND_GROUP_1448H.xlsx -> Lavajam Details sheet)
+  if (typeof window === 'undefined') {
+    try {
+      const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+      if (fs.existsSync(excelPath)) {
+        const wb = XLSX.readFile(excelPath);
+        const ws = wb.Sheets['Lavajam Details'];
+        if (ws) {
+          const excelRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+          if (excelRows.length > 1) {
+            const headers = (excelRows[0] || []).map(h => String(h).trim());
+            let nameCol = headers.findIndex(h => h.toLowerCase().replace(/[^a-z]/g, '') === 'fullname' || h.toLowerCase() === 'name');
+            let fundCol = headers.findIndex(h => h.toLowerCase().replace(/[^a-z]/g, '') === 'fundtype');
+            if (nameCol === -1) nameCol = 0;
+            if (fundCol === -1) fundCol = 1;
+
+            const discoveredYears = new Set<string>();
+            headers.forEach(h => {
+              if (/^\d{4}$/.test(h)) discoveredYears.add(h);
+            });
+            if (!discoveredYears.has(requestedYear)) discoveredYears.add(requestedYear);
+            const sortedYears = Array.from(discoveredYears).sort((a, b) => Number(b) - Number(a));
+
+            let yearCol = headers.findIndex(h => h === requestedYear);
+
+            const users = getUsers();
+            const validRecords: LavajamRecord[] = [];
+
+            for (let i = 1; i < excelRows.length; i++) {
+              const row = excelRows[i];
+              const rawName = String(row[nameCol] || '').trim();
+              if (!rawName) continue;
+              const upperName = rawName.toUpperCase();
+              if (upperName.includes('ZOZWALA')) continue;
+              if (upperName.includes('HUSSAIN HANNANBHAI') || (upperName.includes('HUSSAIN') && upperName.includes('MULLAMITHAWALA'))) continue;
+
+              const rawFund = String(row[fundCol] || '').trim();
+              const isHoob = rawFund.toLowerCase().includes('hoob');
+              const fundType: 'Lavajam' | 'Hoob' = isHoob ? 'Hoob' : 'Lavajam';
+
+              const yearVal = yearCol !== -1 ? row[yearCol] : undefined;
+              const amount = (yearVal !== undefined && yearVal !== null && String(yearVal).trim() !== '' && !isNaN(Number(yearVal)))
+                ? Number(yearVal)
+                : 0;
+
+              const status: LavajamStatus = amount > 0 ? 'Paid' : 'Unpaid';
+              let section = 'External / Hoob';
+              let userId: string | undefined = undefined;
+              let role: string | undefined = undefined;
+
+              const isMufaddal = upperName.includes('VALINABU');
+              if (isMufaddal) {
+                section = 'Major';
+                role = 'Major';
+              }
+
+              if (!isHoob) {
+                const normRaw = rawName.toLowerCase().replace(/[^a-z0-9]/g, '');
+                const matchedUser = users.find(u => {
+                  const normU = u.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                  return normU === normRaw || normU.includes(normRaw) || normRaw.includes(normU);
+                });
+                if (matchedUser) {
+                  if (!isMufaddal) {
+                    section = matchedUser.section;
+                  }
+                  userId = matchedUser.id;
+                  if (!role) {
+                    role = matchedUser.role;
+                  }
+                } else if (!isMufaddal) {
+                  section = 'General';
+                }
+              }
+
+              validRecords.push({
+                id: `lav-excel-${i}`,
+                userId,
+                userName: rawName,
+                fundType,
+                role,
+                section,
+                year: requestedYear,
+                amount,
+                status,
+                paidAt: status === 'Paid' ? new Date().toISOString() : undefined,
+                paymentMethod: status === 'Paid' ? (isHoob ? 'UPI' : (i % 2 === 0 ? 'UPI' : 'Cash')) : undefined,
+                receiptNo: status === 'Paid' ? `REC-${requestedYear}-${String(i).padStart(3, '0')}` : undefined,
+              });
+            }
+
+            setFinancials(validRecords);
+            return { records: validRecords, years: sortedYears, selectedYear: requestedYear };
+          }
+        }
+      }
+    } catch (excelErr) {
+      console.warn('Fallback direct Excel read notice:', excelErr);
+    }
+  }
+
+  // Fallback to local DB
   const fallbackYears = [requestedYear];
-  const dbRecords = getFinancials().map(rec => ({
-    ...rec,
-    year: requestedYear,
-    status: (rec.amount > 0 ? 'Paid' : 'Unpaid') as LavajamStatus,
-  }));
+  const dbRecords = getFinancials()
+    .filter(rec => {
+      const uname = (rec.userName || '').toUpperCase();
+      if (uname.includes('ZOZWALA')) return false;
+      if (uname.includes('HUSSAIN HANNANBHAI') || (uname.includes('HUSSAIN') && uname.includes('MULLAMITHAWALA'))) return false;
+      return true;
+    })
+    .map(rec => ({
+      ...rec,
+      section: (rec.userName || '').toUpperCase().includes('VALINABU') ? 'Major' : rec.section,
+      role: (rec.userName || '').toUpperCase().includes('VALINABU') ? 'Major' : rec.role,
+      year: requestedYear,
+      status: (rec.amount > 0 ? 'Paid' : 'Unpaid') as LavajamStatus,
+    }));
   return { records: dbRecords, years: fallbackYears, selectedYear: requestedYear };
 }
 
@@ -1325,7 +1478,16 @@ export function syncLavajamToExcel(
         }
       }
 
-      const newWs = XLSX.utils.aoa_to_sheet(rows);
+      // Ensure excluded members are never written to Lavajam Details sheet
+      const cleanRows = rows.filter((r, idx) => {
+        if (idx === 0) return true;
+        const rowName = String(r[nameCol] || '').trim().toUpperCase();
+        if (rowName.includes('ZOZWALA')) return false;
+        if (rowName.includes('HUSSAIN HANNANBHAI') || (rowName.includes('HUSSAIN') && rowName.includes('MULLAMITHAWALA'))) return false;
+        return true;
+      });
+
+      const newWs = XLSX.utils.aoa_to_sheet(cleanRows);
       wb.Sheets['Lavajam Details'] = newWs;
       if (!wb.SheetNames.includes('Lavajam Details')) {
         wb.SheetNames.push('Lavajam Details');
