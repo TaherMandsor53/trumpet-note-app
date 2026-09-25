@@ -1665,3 +1665,373 @@ export async function postExpenseToGoogleSheet(
   }
 }
 
+// ----------------- REFERENCE LINK SHEET & DRIVE FOLDERS (IMAGE 3) -----------------
+
+export interface ReferenceLinkRecord {
+  id?: string;
+  tuneName: string;
+  instrumentType: string;
+  targetFolder: string;
+  fileName: string;
+  fileUrl: string;
+  youtubeLink?: string;
+  instagramLink?: string;
+  uploadedBy?: string;
+  createdAt?: string;
+}
+
+export const INSTRUMENT_DRIVE_FOLDER_MAP: Record<string, string> = {
+  Trumpet: 'Trumpet Notes',
+  Saxophone: 'Saxophone Notes',
+  'SideDrum/BaseDrum': 'SideDrum Notes',
+  SideDrum: 'SideDrum Notes',
+  BaseDrum: 'SideDrum Notes',
+  Euphonium: 'Euphonium Notes',
+  Trombone: 'Trombone Notes',
+  Dish: 'Dish Notes',
+};
+
+/**
+ * Synchronizes Reference Link entry to local Excel file (TAHERI_SCOUT_BAND_GROUP_1448H.xlsx -> Reference Link sheet)
+ */
+export function syncReferenceLinkToExcel(record: ReferenceLinkRecord): void {
+  if (typeof window === 'undefined') {
+    try {
+      const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+      if (!fs.existsSync(excelPath)) return;
+
+      const fileBuf = fs.readFileSync(excelPath);
+      const wb = XLSX.read(fileBuf, { type: 'buffer' });
+      let ws = wb.Sheets['Reference Link'];
+      let rows: any[][] = [];
+
+      const headers = [
+        'Timestamp',
+        'Tune Name',
+        'Instrument Type',
+        'Target Drive Folder',
+        'File Name',
+        'File URL',
+        'YouTube Link',
+        'Instagram Link',
+        'Uploaded By',
+      ];
+
+      if (!ws) {
+        rows = [headers];
+      } else {
+        const rawJson = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+        // Clean out dummy test headers if present
+        if (rawJson.length > 0 && (rawJson[0][0] === 'A' || rawJson[0][0] !== 'Timestamp')) {
+          rows = [headers];
+        } else if (rawJson.length === 0) {
+          rows = [headers];
+        } else {
+          rows = rawJson;
+        }
+      }
+
+      rows.push([
+        record.createdAt || new Date().toISOString(),
+        record.tuneName,
+        record.instrumentType,
+        record.targetFolder,
+        record.fileName,
+        record.fileUrl,
+        record.youtubeLink || '',
+        record.instagramLink || '',
+        record.uploadedBy || 'Section Leadership',
+      ]);
+
+      const newWs = XLSX.utils.aoa_to_sheet(rows);
+      wb.Sheets['Reference Link'] = newWs;
+      if (!wb.SheetNames.includes('Reference Link')) {
+        wb.SheetNames.push('Reference Link');
+      }
+      const outBuf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      fs.writeFileSync(excelPath, outBuf);
+    } catch (err) {
+      console.warn('Failed to sync Reference Link to local Excel:', err);
+    }
+  }
+}
+
+/**
+ * Reads all Reference Link records from local Excel file
+ */
+export function getReferenceLinksFromExcel(): ReferenceLinkRecord[] {
+  if (typeof window === 'undefined') {
+    try {
+      const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+      if (!fs.existsSync(excelPath)) return [];
+
+      const fileBuf = fs.readFileSync(excelPath);
+      const wb = XLSX.read(fileBuf, { type: 'buffer' });
+      const ws = wb.Sheets['Reference Link'];
+      if (!ws) return [];
+
+      const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+      if (rawRows.length < 2) return [];
+
+      const records: ReferenceLinkRecord[] = [];
+      for (let i = 1; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        if (!row || !row[1] || row[0] === 'A' || row[0] === '1') continue;
+        records.push({
+          id: `ref-${i}-${Date.now()}`,
+          createdAt: String(row[0] || ''),
+          tuneName: String(row[1] || ''),
+          instrumentType: String(row[2] || ''),
+          targetFolder: String(row[3] || ''),
+          fileName: String(row[4] || ''),
+          fileUrl: String(row[5] || ''),
+          youtubeLink: String(row[6] || ''),
+          instagramLink: String(row[7] || ''),
+          uploadedBy: String(row[8] || ''),
+        });
+      }
+      return records;
+    } catch (err) {
+      console.warn('Failed to read Reference Links from Excel:', err);
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * Posts Reference Link entry to Google Sheet & uploads file to Google Drive folder via Google Apps Script Web App
+ */
+export async function postReferenceLinkToGoogleSheet(
+  record: ReferenceLinkRecord,
+  fileBase64?: string,
+  mimeType?: string
+): Promise<{ success: boolean; message: string; driveFileUrl?: string }> {
+  const config = getGoogleSheetConfig();
+  if (!config.appsScriptUrl) {
+    return { success: false, message: 'Google Apps Script URL not configured.' };
+  }
+  try {
+    const payload = {
+      action: 'addReferenceLink',
+      sheetName: 'Reference Link',
+      tuneName: record.tuneName,
+      instrumentType: record.instrumentType,
+      targetFolder: record.targetFolder,
+      fileName: record.fileName,
+      fileUrl: record.fileUrl,
+      youtubeLink: record.youtubeLink || '',
+      instagramLink: record.instagramLink || '',
+      uploadedBy: record.uploadedBy || 'Section Leadership',
+      timestamp: record.createdAt || new Date().toISOString(),
+      fileBase64: fileBase64 || '',
+      mimeType: mimeType || (record.fileName.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+      record: {
+        tuneName: record.tuneName,
+        instrumentType: record.instrumentType,
+        targetFolder: record.targetFolder,
+        fileName: record.fileName,
+        fileUrl: record.fileUrl,
+        youtubeLink: record.youtubeLink || '',
+        instagramLink: record.instagramLink || '',
+        uploadedBy: record.uploadedBy || 'Section Leadership',
+        timestamp: record.createdAt || new Date().toISOString(),
+      },
+    };
+
+    const response = await fetch(config.appsScriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      redirect: 'follow',
+      body: JSON.stringify(payload),
+    });
+    const resData = await response.json().catch(() => ({}));
+    const driveUrl = resData.fileUrl || resData.driveFileUrl || resData.record?.fileUrl;
+    return {
+      success: true,
+      message: resData.message || 'Synced with Reference Link sheet and Google Drive folder',
+      driveFileUrl: driveUrl,
+    };
+  } catch (err: any) {
+    console.warn('Failed to sync Reference Link with Google Apps Script:', err);
+    return { success: false, message: err?.message || 'Failed to sync with Reference Link sheet' };
+  }
+}
+
+/**
+ * Retrieves reference links, prioritizing live Google Sheet via Apps Script with fallback to Excel
+ */
+export async function getReferenceLinksFromSheet(): Promise<ReferenceLinkRecord[]> {
+  const config = getGoogleSheetConfig();
+  if (config.appsScriptUrl) {
+    try {
+      const res = await fetch(`${config.appsScriptUrl}?action=getReferenceLinks`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      const data = await res.json().catch(() => null);
+      if (data && data.success && Array.isArray(data.referenceLinks) && data.referenceLinks.length > 0) {
+        return data.referenceLinks;
+      }
+    } catch (err) {
+      console.warn('Could not fetch reference links from Apps Script, reading from local Excel:', err);
+    }
+  }
+
+  return getReferenceLinksFromExcel();
+}
+
+/**
+ * Updates a Reference Link record in local Excel workbook
+ */
+export function updateReferenceLinkInExcel(tuneName: string, updatedRecord: Partial<ReferenceLinkRecord>): boolean {
+  if (typeof window === 'undefined') {
+    try {
+      const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+      if (!fs.existsSync(excelPath)) return false;
+
+      const fileBuf = fs.readFileSync(excelPath);
+      const wb = XLSX.read(fileBuf, { type: 'buffer' });
+      const ws = wb.Sheets['Reference Link'];
+      if (!ws) return false;
+
+      const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+      const targetName = tuneName.trim().toLowerCase();
+      let updated = false;
+
+      for (let i = 1; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        if (!row || !row[1]) continue;
+        const rowTuneName = String(row[1] || '').trim().toLowerCase();
+        if (rowTuneName === targetName) {
+          if (updatedRecord.tuneName) row[1] = updatedRecord.tuneName;
+          if (updatedRecord.instrumentType) row[2] = updatedRecord.instrumentType;
+          if (updatedRecord.targetFolder) row[3] = updatedRecord.targetFolder;
+          if (updatedRecord.fileName) row[4] = updatedRecord.fileName;
+          if (updatedRecord.fileUrl) row[5] = updatedRecord.fileUrl;
+          if (updatedRecord.youtubeLink !== undefined) row[6] = updatedRecord.youtubeLink;
+          if (updatedRecord.instagramLink !== undefined) row[7] = updatedRecord.instagramLink;
+          if (updatedRecord.uploadedBy) row[8] = updatedRecord.uploadedBy;
+          updated = true;
+          break;
+        }
+      }
+
+      if (updated) {
+        wb.Sheets['Reference Link'] = XLSX.utils.aoa_to_sheet(rawRows);
+        const outBuf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        fs.writeFileSync(excelPath, outBuf);
+      }
+      return updated;
+    } catch (err) {
+      console.warn('Failed to update Reference Link in Excel:', err);
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * Deletes a Reference Link record from local Excel workbook
+ */
+export function deleteReferenceLinkFromExcel(tuneName: string): boolean {
+  if (typeof window === 'undefined') {
+    try {
+      const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+      if (!fs.existsSync(excelPath)) return false;
+
+      const fileBuf = fs.readFileSync(excelPath);
+      const wb = XLSX.read(fileBuf, { type: 'buffer' });
+      const ws = wb.Sheets['Reference Link'];
+      if (!ws) return false;
+
+      const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+      const targetName = tuneName.trim().toLowerCase();
+      const newRows: any[][] = [];
+      let deleted = false;
+
+      for (let i = 0; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        if (i === 0) {
+          newRows.push(row);
+          continue;
+        }
+        if (!row || !row[1]) continue;
+        const rowTuneName = String(row[1] || '').trim().toLowerCase();
+        if (!deleted && rowTuneName === targetName) {
+          deleted = true;
+          continue; // skip row to delete
+        }
+        newRows.push(row);
+      }
+
+      if (deleted) {
+        wb.Sheets['Reference Link'] = XLSX.utils.aoa_to_sheet(newRows);
+        const outBuf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        fs.writeFileSync(excelPath, outBuf);
+      }
+      return deleted;
+    } catch (err) {
+      console.warn('Failed to delete Reference Link from Excel:', err);
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * Updates Reference Link in Google Sheet via Apps Script Web App
+ */
+export async function updateReferenceLinkInGoogleSheet(
+  originalTuneName: string,
+  record: Partial<ReferenceLinkRecord>
+): Promise<{ success: boolean; message: string }> {
+  const config = getGoogleSheetConfig();
+  if (!config.appsScriptUrl) {
+    return { success: false, message: 'Google Apps Script URL not configured.' };
+  }
+  try {
+    const res = await fetch(config.appsScriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'updateReferenceLink',
+        sheetName: 'Reference Link',
+        originalTuneName,
+        ...record,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { success: true, message: data.message || 'Updated in Reference Link sheet' };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Failed to update in sheet' };
+  }
+}
+
+/**
+ * Deletes Reference Link from Google Sheet via Apps Script Web App
+ */
+export async function deleteReferenceLinkFromGoogleSheet(
+  tuneName: string
+): Promise<{ success: boolean; message: string }> {
+  const config = getGoogleSheetConfig();
+  if (!config.appsScriptUrl) {
+    return { success: false, message: 'Google Apps Script URL not configured.' };
+  }
+  try {
+    const res = await fetch(config.appsScriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'deleteReferenceLink',
+        sheetName: 'Reference Link',
+        tuneName,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { success: true, message: data.message || 'Deleted from Reference Link sheet' };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Failed to delete from sheet' };
+  }
+}
+

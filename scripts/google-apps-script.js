@@ -85,6 +85,40 @@ function doGet(e) {
       }
     }
 
+    // Fetch Reference Link sheet data
+    if (param.action === "getReferenceLinks" || param.sheet === "Reference Link") {
+      var refSheet = ss.getSheetByName("Reference Link");
+      if (!refSheet) {
+        return createJsonResponse({ success: true, count: 0, referenceLinks: [] });
+      }
+      var refData = refSheet.getDataRange().getValues();
+      if (refData.length < 2) {
+        return createJsonResponse({ success: true, count: 0, referenceLinks: [] });
+      }
+      var links = [];
+      for (var k = 1; k < refData.length; k++) {
+        var rRow = refData[k];
+        if (!rRow || !rRow[1]) continue;
+        links.push({
+          id: "ref-" + k,
+          createdAt: String(rRow[0] || ""),
+          tuneName: String(rRow[1] || ""),
+          instrumentType: String(rRow[2] || ""),
+          targetFolder: String(rRow[3] || ""),
+          fileName: String(rRow[4] || ""),
+          fileUrl: String(rRow[5] || ""),
+          youtubeLink: String(rRow[6] || ""),
+          instagramLink: String(rRow[7] || ""),
+          uploadedBy: String(rRow[8] || "")
+        });
+      }
+      return createJsonResponse({
+        success: true,
+        count: links.length,
+        referenceLinks: links
+      });
+    }
+
     var sheetName = param.sheet || "Member Details";
     var sheet = ss.getSheetByName(sheetName) || ss.getSheets()[0];
     var data = sheet.getDataRange().getValues();
@@ -836,6 +870,149 @@ function doPost(e) {
         });
       }
       return createJsonResponse({ success: false, message: "Expense not found in Instrument Expenses." });
+    }
+
+    // ------------------------------------------------------------------------
+    // ACTION: addReferenceLink (Upload to Google Drive Folder & Sheet sync)
+    // ------------------------------------------------------------------------
+    if (action === "addReferenceLink") {
+      var record = body.record || body;
+      var tuneName = record.tuneName || "";
+      var instrumentType = record.instrumentType || "Trumpet";
+      var targetFolder = record.targetFolder || (instrumentType ? instrumentType + " Notes" : "Trumpet Notes");
+      var fileName = record.fileName || (tuneName + "_Score.pdf");
+      var fileUrl = record.fileUrl || "";
+      var youtubeLink = record.youtubeLink || "";
+      var instagramLink = record.instagramLink || "";
+      var uploadedBy = record.uploadedBy || "Section Leadership";
+      var timestamp = record.timestamp || new Date().toISOString();
+
+      var driveFileUrl = fileUrl;
+
+      // 1. Upload to designated Instrument Type Google Drive folder
+      try {
+        var folder = null;
+        var folders = DriveApp.getFoldersByName(targetFolder);
+        if (folders.hasNext()) {
+          folder = folders.next();
+        } else {
+          folder = DriveApp.createFolder(targetFolder);
+        }
+
+        var base64Content = record.fileBase64 || body.fileBase64;
+        if (base64Content) {
+          var mimeType = record.mimeType || body.mimeType || (fileName.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg");
+          var decoded = Utilities.base64Decode(base64Content);
+          var blob = Utilities.newBlob(decoded, mimeType, fileName);
+          var driveFile = folder.createFile(blob);
+          driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          driveFileUrl = driveFile.getUrl();
+        }
+      } catch (driveErr) {
+        console.warn("DriveApp warning: " + driveErr.toString());
+      }
+
+      // 2. Insert into Reference Link sheet in Google Spreadsheet
+      var refSheet = ss.getSheetByName("Reference Link");
+      if (!refSheet) {
+        refSheet = ss.insertSheet("Reference Link");
+        refSheet.appendRow([
+          "Timestamp",
+          "Tune Name",
+          "Instrument Type",
+          "Target Drive Folder",
+          "File Name",
+          "File URL / Drive Link",
+          "YouTube Link",
+          "Instagram Link",
+          "Uploaded By"
+        ]);
+        refSheet.getRange(1, 1, 1, 9).setFontWeight("bold").setBackground("#D97736").setFontColor("#FFFFFF");
+      }
+
+      refSheet.appendRow([
+        timestamp,
+        tuneName,
+        instrumentType,
+        targetFolder,
+        fileName,
+        driveFileUrl || fileUrl,
+        youtubeLink,
+        instagramLink,
+        uploadedBy
+      ]);
+
+      return createJsonResponse({
+        success: true,
+        message: "Tune notes uploaded to " + targetFolder + " in Drive and recorded in Reference Link sheet.",
+        fileUrl: driveFileUrl || fileUrl,
+        driveFolder: targetFolder,
+        record: {
+          timestamp: timestamp,
+          tuneName: tuneName,
+          instrumentType: instrumentType,
+          targetFolder: targetFolder,
+          fileName: fileName,
+          fileUrl: driveFileUrl || fileUrl,
+          youtubeLink: youtubeLink,
+          instagramLink: instagramLink,
+          uploadedBy: uploadedBy
+        }
+      });
+    }
+
+    // ------------------------------------------------------------------------
+    // ACTION: updateReferenceLink
+    // ------------------------------------------------------------------------
+    if (action === "updateReferenceLink") {
+      var refSheet = ss.getSheetByName("Reference Link");
+      if (!refSheet) {
+        return createJsonResponse({ success: false, message: "Reference Link sheet not found." });
+      }
+      var targetTune = String(body.originalTuneName || body.tuneName || "").trim().toLowerCase();
+      var refData = refSheet.getDataRange().getValues();
+      var updateRow = -1;
+      for (var r = 1; r < refData.length; r++) {
+        if (String(refData[r][1] || "").trim().toLowerCase() === targetTune) {
+          updateRow = r + 1;
+          break;
+        }
+      }
+      if (updateRow > 0) {
+        if (body.tuneName) refSheet.getRange(updateRow, 2).setValue(body.tuneName);
+        if (body.instrumentType) refSheet.getRange(updateRow, 3).setValue(body.instrumentType);
+        if (body.targetFolder) refSheet.getRange(updateRow, 4).setValue(body.targetFolder);
+        if (body.fileName) refSheet.getRange(updateRow, 5).setValue(body.fileName);
+        if (body.fileUrl) refSheet.getRange(updateRow, 6).setValue(body.fileUrl);
+        if (body.youtubeLink !== undefined) refSheet.getRange(updateRow, 7).setValue(body.youtubeLink);
+        if (body.instagramLink !== undefined) refSheet.getRange(updateRow, 8).setValue(body.instagramLink);
+        return createJsonResponse({ success: true, message: "Tune notes updated in Reference Link sheet." });
+      }
+      return createJsonResponse({ success: false, message: "Tune not found in Reference Link sheet." });
+    }
+
+    // ------------------------------------------------------------------------
+    // ACTION: deleteReferenceLink
+    // ------------------------------------------------------------------------
+    if (action === "deleteReferenceLink") {
+      var refSheet = ss.getSheetByName("Reference Link");
+      if (!refSheet) {
+        return createJsonResponse({ success: false, message: "Reference Link sheet not found." });
+      }
+      var targetTune = String(body.tuneName || "").trim().toLowerCase();
+      var refData = refSheet.getDataRange().getValues();
+      var delRow = -1;
+      for (var r = 1; r < refData.length; r++) {
+        if (String(refData[r][1] || "").trim().toLowerCase() === targetTune) {
+          delRow = r + 1;
+          break;
+        }
+      }
+      if (delRow > 0) {
+        refSheet.deleteRow(delRow);
+        return createJsonResponse({ success: true, message: "Tune notes deleted from Reference Link sheet." });
+      }
+      return createJsonResponse({ success: false, message: "Tune not found in Reference Link sheet." });
     }
 
     return createJsonResponse({ error: "Unknown action: " + action });

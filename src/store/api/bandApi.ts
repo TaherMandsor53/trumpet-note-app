@@ -44,7 +44,7 @@ const baseQueryWithSessionCheck: BaseQueryFn<string | FetchArgs, unknown, FetchB
 export const bandApi = createApi({
   reducerPath: 'bandApi',
   baseQuery: baseQueryWithSessionCheck,
-  tagTypes: ['Users', 'Financials', 'PersonalFinancials', 'Attendance', 'Reports', 'Tunes', 'Expenses'],
+  tagTypes: ['Users', 'Financials', 'PersonalFinancials', 'Attendance', 'Reports', 'Tunes', 'Expenses', 'ReferenceLinks'],
   endpoints: (builder) => ({
     // Auth
     getMe: builder.query<{ authenticated: boolean; user: User | null }, void>({
@@ -286,6 +286,35 @@ export const bandApi = createApi({
       }),
       invalidatesTags: ['Expenses'],
     }),
+
+    // Reference Links (Google Sheet Reference Link & My Drive Folders)
+    getReferenceLinks: builder.query<{ referenceLinks: any[] }, void>({
+      query: () => '/reference-links',
+      providesTags: ['ReferenceLinks'],
+    }),
+    addReferenceLink: builder.mutation<{ success: boolean; message: string; record: any }, FormData>({
+      query: (formData) => ({
+        url: '/reference-links',
+        method: 'POST',
+        body: formData,
+      }),
+      invalidatesTags: ['ReferenceLinks', 'Tunes'],
+    }),
+    updateReferenceLink: builder.mutation<{ success: boolean; message: string; updates: any }, FormData | { originalTuneName: string; tuneName?: string; instrumentType?: string; youtubeLink?: string; instagramLink?: string }>({
+      query: (body) => ({
+        url: '/reference-links',
+        method: 'PUT',
+        body,
+      }),
+      invalidatesTags: ['ReferenceLinks', 'Tunes'],
+    }),
+    deleteReferenceLink: builder.mutation<{ success: boolean; message: string }, string>({
+      query: (tuneName) => ({
+        url: `/reference-links?tuneName=${encodeURIComponent(tuneName)}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['ReferenceLinks', 'Tunes'],
+    }),
   }),
 });
 
@@ -317,4 +346,8 @@ export const {
   useCreateTuneMutation,
   useAssignTuneMutation,
   useSyncDriveSectionMutation,
+  useGetReferenceLinksQuery,
+  useAddReferenceLinkMutation,
+  useUpdateReferenceLinkMutation,
+  useDeleteReferenceLinkMutation,
 } = bandApi;

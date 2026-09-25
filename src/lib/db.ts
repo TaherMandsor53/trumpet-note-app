@@ -612,3 +612,24 @@ export function updateTuneAssignments(tuneId: string, assignedUserIds: string[])
     isNew: isTuneNew(db.tunes[index].createdAt),
   };
 }
+
+export function updateTuneByName(tuneName: string, updates: Partial<Tune>): Tune | null {
+  const db = getDatabase();
+  const index = db.tunes.findIndex(t => t.title.toLowerCase().trim() === tuneName.toLowerCase().trim());
+  if (index === -1) return null;
+  db.tunes[index] = {
+    ...db.tunes[index],
+    ...updates,
+  };
+  return {
+    ...db.tunes[index],
+    isNew: isTuneNew(db.tunes[index].createdAt),
+  };
+}
+
+export function deleteTuneByName(tuneName: string): boolean {
+  const db = getDatabase();
+  const initialLen = db.tunes.length;
+  db.tunes = db.tunes.filter(t => t.title.toLowerCase().trim() !== tuneName.toLowerCase().trim());
+  return db.tunes.length < initialLen;
+}
