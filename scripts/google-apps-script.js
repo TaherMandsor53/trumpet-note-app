@@ -1061,6 +1061,77 @@ function doPost(e) {
       });
     }
 
+    // ------------------------------------------------------------------------
+    // ACTION: updatePassword
+    // ------------------------------------------------------------------------
+    if (action === "updatePassword") {
+      var targetSheets = ["Member Details", "Responses"];
+      var newPass = String(body.newPassword || body.password || "").trim();
+
+      if (!newPass) {
+        return createJsonResponse({ success: false, message: "New password is required." });
+      }
+
+      var targetUser = String(body.username || body.identifier || body.email || "").trim().toLowerCase();
+      var targetIts = String(body.itsNumber || "").trim().replace(/\D/g, "");
+      var targetName = String(body.name || "").trim().toLowerCase();
+
+      var anyUpdated = false;
+      var updatedSheets = [];
+
+      for (var sIdx = 0; sIdx < targetSheets.length; sIdx++) {
+        var sName = targetSheets[sIdx];
+        var sSheet = ss.getSheetByName(sName);
+        if (!sSheet) continue;
+
+        var sData = sSheet.getDataRange().getValues();
+        if (sData.length < 2) continue;
+
+        var sHeaders = sData[0];
+        var sColMap = mapHeaders(sHeaders);
+        var sPassCol = sColMap.password;
+
+        // If Password column does not exist in this sheet, create it in header
+        if (sPassCol === -1) {
+          sPassCol = sHeaders.length;
+          sSheet.getRange(1, sPassCol + 1).setValue("8. Password");
+        }
+
+        for (var r = 1; r < sData.length; r++) {
+          var rowIts = sColMap.its !== -1 ? String(sData[r][sColMap.its] || "").trim().replace(/\D/g, "") : "";
+          var rowName = sColMap.name !== -1 ? String(sData[r][sColMap.name] || "").trim().toLowerCase() : "";
+          var rowUser = sColMap.username !== -1 ? String(sData[r][sColMap.username] || "").trim().toLowerCase() : "";
+
+          var matches = false;
+          if (targetIts && rowIts && rowIts === targetIts) matches = true;
+          if (targetUser && (rowUser === targetUser || rowUser.split("@")[0] === targetUser.split("@")[0])) matches = true;
+          if (targetName && (rowName === targetName || rowName.indexOf(targetName) !== -1 || targetName.indexOf(rowName) !== -1)) matches = true;
+          if (targetUser && (rowName === targetUser || (rowIts && rowIts === targetUser))) matches = true;
+
+          if (matches) {
+            sSheet.getRange(r + 1, sPassCol + 1).setValue(newPass);
+            anyUpdated = true;
+            if (updatedSheets.indexOf(sName) === -1) {
+              updatedSheets.push(sName);
+            }
+            break;
+          }
+        }
+      }
+
+      if (anyUpdated) {
+        return createJsonResponse({
+          success: true,
+          message: "Password successfully updated in " + updatedSheets.join(" & ") + " Google Sheets in Password column."
+        });
+      }
+
+      return createJsonResponse({
+        success: false,
+        message: "Member not found in Member Details or Responses sheet to update password."
+      });
+    }
+
     return createJsonResponse({ error: "Unknown action: " + action });
   } catch (err) {
     return createJsonResponse({ error: err.toString() });
@@ -1115,6 +1186,7 @@ function mapHeaders(headerRow) {
   if (map.jamaat === -1 && headerRow.length >= 5) map.jamaat = 4;
   if (map.role === -1 && headerRow.length >= 6) map.role = 5;
   if (map.username === -1 && headerRow.length >= 7) map.username = 6;
+  if (map.password === -1 && headerRow.length >= 9) map.password = 8;
 
   return map;
 }

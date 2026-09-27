@@ -89,6 +89,27 @@ export const bandApi = createApi({
       }),
       invalidatesTags: ['Users'],
     }),
+    verifyCurrentPassword: builder.mutation<
+      { success: boolean; verified: boolean; message: string },
+      { currentPassword: string }
+    >({
+      query: (body) => ({
+        url: '/auth/change-password',
+        method: 'POST',
+        body: { action: 'verify-current', ...body },
+      }),
+    }),
+    changePassword: builder.mutation<
+      { success: boolean; message: string; sheetSynced?: boolean },
+      { currentPassword: string; newPassword: string; confirmPassword: string }
+    >({
+      query: (body) => ({
+        url: '/auth/change-password',
+        method: 'POST',
+        body: { action: 'update', ...body },
+      }),
+      invalidatesTags: ['Users'],
+    }),
     syncGoogleSheetMembers: builder.mutation<
       { success: boolean; count: number; source: string; message: string; sheetUrl: string; sheetName: string },
       void
@@ -363,6 +384,8 @@ export const {
   useLogoutUserMutation,
   useVerifyForgotUserMutation,
   useResetPasswordMutation,
+  useVerifyCurrentPasswordMutation,
+  useChangePasswordMutation,
   useSyncGoogleSheetMembersMutation,
   useGetUsersQuery,
   useCreateUserMutation,

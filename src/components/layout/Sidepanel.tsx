@@ -31,6 +31,7 @@ import {
   ShieldCheck,
   PanelLeftClose,
   PanelLeftOpen,
+  KeyRound,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -164,6 +165,15 @@ export function Sidepanel({
       icon: Video,
       allowed: (isOverallMajorUser || isInstrumentMajorUser) && !isTreasurerUser, // Visible only to Major and Section Major (hidden from Treasurer and Members)
       badge: 'Media',
+      badgeVariant: 'secondary' as const,
+    },
+    {
+      id: 'change-password',
+      label: 'Change Password',
+      subtitle: 'Security & Access Key',
+      icon: KeyRound,
+      allowed: true, // Visible to all users
+      badge: 'Security',
       badgeVariant: 'secondary' as const,
     },
   ];

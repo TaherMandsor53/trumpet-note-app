@@ -820,13 +820,15 @@ export async function updateMemberPassword(
     };
   }
 
+  const user = getUserByUsernameOrEmail(usernameOrEmail);
+
   // Update password in local Excel sheet (Member Details and Responses)
   updatePasswordInExcelFile(usernameOrEmail, newPassword);
 
   const config = getGoogleSheetConfig();
   let sheetSynced = false;
 
-  // If Apps Script Web App URL is present, send the update
+  // If Apps Script Web App URL is present, send the update directly to Google Sheet
   if (config.appsScriptUrl) {
     try {
       const response = await fetch(config.appsScriptUrl, {
@@ -835,14 +837,20 @@ export async function updateMemberPassword(
         redirect: 'follow',
         body: JSON.stringify({
           action: 'updatePassword',
-          sheetName: config.sheetName,
-          username: usernameOrEmail,
+          sheetName: 'Member Details',
+          username: user?.username || usernameOrEmail,
+          email: user?.email || usernameOrEmail,
+          itsNumber: user?.itsNumber || '',
+          name: user?.name || '',
           newPassword: newPassword,
         }),
       });
 
       if (response.ok) {
-        sheetSynced = true;
+        const json = await response.json().catch(() => null);
+        if (json && json.success !== false) {
+          sheetSynced = true;
+        }
       }
     } catch (err) {
       console.warn('Failed to post password update to Google Apps Script:', err);
@@ -853,7 +861,7 @@ export async function updateMemberPassword(
     success: true,
     message: sheetSynced
       ? `Password successfully updated in Member Details Google Sheet, local Excel, and application database.`
-      : `Password successfully updated for ${usernameOrEmail} in Member Details and local Excel.`,
+      : `Password successfully updated for ${user?.name || usernameOrEmail} in Member Details and local Excel.`,
     sheetSynced,
   };
 }
@@ -898,6 +906,13 @@ export function updatePasswordInExcelFile(identifier: string, newPassword: strin
         let userColIndex = headerRow.findIndex((h: any) =>
           String(h || '').toLowerCase().includes('user')
         );
+        const itsColIndex = headerRow.findIndex((h: any) =>
+          String(h || '').toLowerCase().includes('its')
+        );
+        const nameColIndex = headerRow.findIndex((h: any) => {
+          const s = String(h || '').toLowerCase();
+          return s.includes('name') && !s.includes('user');
+        });
 
         if (userColIndex === -1) {
           userColIndex = headerRow.length;
@@ -911,14 +926,15 @@ export function updatePasswordInExcelFile(identifier: string, newPassword: strin
         for (let i = 1; i < rawRows.length; i++) {
           const r = rawRows[i];
           if (!r || !Array.isArray(r) || r.length === 0) continue;
-          const rowIts = String(r[1] || '').trim();
-          const rowName = String(r[2] || '').trim().toLowerCase();
+          const rowIts = itsColIndex !== -1 ? String(r[itsColIndex] || '').trim().replace(/\D/g, '') : String(r[1] || '').trim().replace(/\D/g, '');
+          const rowName = nameColIndex !== -1 ? String(r[nameColIndex] || '').trim().toLowerCase() : String(r[2] || '').trim().toLowerCase();
           const rowUser = userColIndex !== -1 ? String(r[userColIndex] || '').trim().toLowerCase() : '';
 
           const match =
-            (userIts && (rowIts === userIts || (cleanDigits && rowIts === cleanDigits))) ||
+            (userIts && rowIts && rowIts === userIts.replace(/\D/g, '')) ||
+            (cleanDigits && rowIts && rowIts === cleanDigits) ||
             (userUName && (rowUser === userUName || rowUser.includes(userUName))) ||
-            (userName && rowName === userName) ||
+            (userName && (rowName === userName || rowName.includes(userName) || userName.includes(rowName))) ||
             (cleanId && (rowUser === cleanId || rowName === cleanId));
 
           if (match) {

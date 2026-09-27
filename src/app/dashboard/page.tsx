@@ -15,6 +15,7 @@ import { MemberPortal } from '@/components/dashboards/MemberPortal';
 import { HierarchicalOrgChart } from '@/components/org-chart/HierarchicalOrgChart';
 import { NoteTransposer } from '@/components/tools/NoteTransposer';
 import { VideoShowcase } from '@/components/tools/VideoShowcase';
+import { ChangePasswordPortal } from '@/components/dashboards/ChangePasswordPortal';
 import { DriveSyncModal } from '@/components/tunes/DriveSyncModal';
 import { ExcelImportExportModal } from '@/components/excel/ExcelImportExportModal';
 import { AttendanceMarker } from '@/components/attendance/AttendanceMarker';
@@ -91,7 +92,7 @@ export default function DashboardPage() {
   // Tab permission validator for strict role separation
   const isTabAllowedForRole = (tab: string, role: string, user?: any) => {
     const r = role as Role;
-    if (tab === 'dashboard') return true; // All roles have role-wise dashboard!
+    if (tab === 'dashboard' || tab === 'change-password') return true; // Visible to ALL roles!
     if (isTreasurer(r, user || currentUser)) {
       return ['dashboard', 'financials', 'member-portal', 'section', 'attendance', 'org-chart', 'transposer'].includes(tab);
     }
@@ -217,8 +218,11 @@ export default function DashboardPage() {
           {/* Note Transposer Tool (Visible to ALL roles) */}
           {activeTab === 'transposer' && <NoteTransposer />}
 
-          {/* Procession Videos (Visible to ALL roles) */}
+          {/* Procession Videos */}
           {activeTab === 'videos' && <VideoShowcase />}
+
+          {/* Change Password (Visible to ALL roles) */}
+          {activeTab === 'change-password' && <ChangePasswordPortal />}
         </main>
 
         {/* Modals strictly gated by role */}
