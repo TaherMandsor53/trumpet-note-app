@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import { RootState } from '@/store';
 import {
@@ -10,15 +10,21 @@ import {
 } from '@/store/api/bandApi';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { formatDate, getDaysRemainingForNewBadge } from '@/lib/utils';
+import { SecuredNoteViewerModal } from '@/components/notes/SecuredNoteViewerModal';
 import {
   UserCheck,
   Music,
   FileText,
+  ShieldCheck,
+  Lock,
+  Eye,
 } from 'lucide-react';
 
 export function MemberPortal() {
   const currentUser = useSelector((state: RootState) => state.auth.user);
+  const [selectedTuneForViewer, setSelectedTuneForViewer] = useState<any | null>(null);
 
   // Queries for catalog tunes, Excel Assign Notes sheet, and Reference Links
   const { data: tunesData, isLoading: isLoadingTunes } = useGetTunesQuery({ section: currentUser?.section });
@@ -221,14 +227,17 @@ export function MemberPortal() {
                         {tune.createdAt ? `Added ${formatDate(tune.createdAt)}` : 'Assigned Score'}
                       </span>
                       {tune.pdfUrl ? (
-                        <a
-                          href={tune.pdfUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-xs hover:opacity-90 transition-opacity"
+                        <Button
+                          size="sm"
+                          onClick={() => setSelectedTuneForViewer(tune)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 h-8 rounded-lg bg-primary text-primary-foreground text-xs font-semibold shadow-xs hover:opacity-90 transition-opacity cursor-pointer"
                         >
-                          <FileText className="w-3.5 h-3.5" /> Open Notes PDF
-                        </a>
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>View Notes PDF</span>
+                          <span className="text-[9px] bg-black/25 px-1 py-0.5 rounded font-mono font-normal">
+                            Protected
+                          </span>
+                        </Button>
                       ) : (
                         <span className="text-[10px] text-muted-foreground italic">
                           PDF Score Pending
@@ -242,6 +251,14 @@ export function MemberPortal() {
           )}
         </CardContent>
       </Card>
+
+      {/* Secured In-App View-Only Modal with Phone Screenshot Restrictions */}
+      <SecuredNoteViewerModal
+        isOpen={!!selectedTuneForViewer}
+        onClose={() => setSelectedTuneForViewer(null)}
+        tune={selectedTuneForViewer}
+        member={currentUser}
+      />
     </div>
   );
 }
