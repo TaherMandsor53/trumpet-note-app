@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { User, Tune, LavajamRecord, AttendanceSession, InstrumentSection, Role } from '@/types/band';
+import { User, Tune, LavajamRecord, ExpenseRecord, AttendanceSession, InstrumentSection, Role } from '@/types/band';
 
 export interface ParsedMemberRow {
   Name: string;
@@ -29,12 +29,52 @@ export function parseExcelBuffer<T = unknown>(buffer: ArrayBuffer | Buffer): T[]
 }
 
 /**
- * Generates an Excel buffer for Financials (Lavajam) records
+ * Generates an Excel buffer for Financials (Lavajam) records and Instrument Expenses
  */
-export function exportFinancialsToExcel(records: LavajamRecord[]): Buffer {
-  const data = records.map(r => ({
+export function exportFinancialsToExcel(records: LavajamRecord[], expenses?: ExpenseRecord[]): Buffer {
+  const workbook = XLSX.utils.book_new();
+
+  // 1. Sheet: Lavajam Details (Full Name, Fund Type, 2026)
+  const validContributors = records.filter(r => {
+    const uName = (r.userName || '').toUpperCase();
+    if (!uName) return false;
+    if (uName.includes('ZOZWALA')) return false;
+    if (uName.includes('HUSSAIN HANNANBHAI') || (uName.includes('HUSSAIN') && uName.includes('MULLAMITHAWALA'))) return false;
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(uName)) return false;
+    if (uName === 'LAVAJAM' || uName === 'HOOB') return false;
+    return true;
+  });
+
+  const lavajamRows = [
+    ['Full Name', 'Fund Type', '2026'],
+    ...validContributors.map(r => [
+      r.userName,
+      r.fundType || (r.userName.toLowerCase().includes('bhai') ? 'Hoob' : 'Lavajam'),
+      r.amount > 0 ? r.amount : (r.status === 'Paid' ? 1000 : ''),
+    ]),
+  ];
+  const lavajamWs = XLSX.utils.aoa_to_sheet(lavajamRows);
+  XLSX.utils.book_append_sheet(workbook, lavajamWs, 'Lavajam Details');
+
+  // 2. Sheet: Instrument Expenses (Date, Expense Details, Amount, Additional Notes)
+  const activeExpenses = expenses && expenses.length > 0 ? expenses : [];
+  const expenseRows = [
+    ['Date', 'Expense Details', 'Amount', 'Additional Notes'],
+    ...activeExpenses.map(e => [
+      e.date || '24/09/2026',
+      e.expenseDetails,
+      Number(e.amount) || 0,
+      e.notes || '',
+    ]),
+  ];
+  const expenseWs = XLSX.utils.aoa_to_sheet(expenseRows);
+  XLSX.utils.book_append_sheet(workbook, expenseWs, 'Instrument Expenses');
+
+  // 3. Sheet: Band_Contributions (Comprehensive ledger)
+  const data = validContributors.map(r => ({
     'Receipt No': r.receiptNo || '—',
     'Member Name': r.userName,
+    'Fund Type': r.fundType || (r.userName.toLowerCase().includes('bhai') ? 'Hoob' : 'Lavajam'),
     'Section': r.section,
     'Year': r.year,
     'Month': r.month,
@@ -47,7 +87,6 @@ export function exportFinancialsToExcel(records: LavajamRecord[]): Buffer {
   }));
 
   const worksheet = XLSX.utils.json_to_sheet(data);
-  const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Band_Contributions');
   return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 }

@@ -10,8 +10,10 @@ import {
   setExpenses,
 } from './db';
 import * as XLSX from 'xlsx';
-import * as fs from 'fs';
-import * as path from 'path';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const fs = typeof window === 'undefined' ? require('fs') : null;
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const path = typeof window === 'undefined' ? require('path') : null;
 
 export interface GoogleSheetConfig {
   sheetUrl: string;
@@ -379,11 +381,14 @@ export async function syncLavajamFromGoogleSheet(targetYear?: number | string): 
       if (response.ok) {
         const data = await response.json();
         const rawRows = data.members || [];
-        // Strictly filter out M ISMAIL SH YUSUFBHAI ZOZWALA and HUSSAIN HANNANBHAI MULLAMITHAWALA
+        // Strictly filter out M ISMAIL SH YUSUFBHAI ZOZWALA, HUSSAIN HANNANBHAI MULLAMITHAWALA, and invalid date rows
         const rows = (Array.isArray(rawRows) ? rawRows : []).filter((r: any) => {
           const rawName = String(r['Full Name'] || r['Name'] || r.name || r.userName || '').trim().toUpperCase();
+          if (!rawName) return false;
           if (rawName.includes('ZOZWALA')) return false;
           if (rawName.includes('HUSSAIN HANNANBHAI') || (rawName.includes('HUSSAIN') && rawName.includes('MULLAMITHAWALA'))) return false;
+          if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(rawName)) return false;
+          if (rawName === 'LAVAJAM' || rawName === 'HOOB') return false;
           return true;
         });
 
@@ -463,7 +468,35 @@ export async function syncLavajamFromGoogleSheet(targetYear?: number | string): 
             };
           });
 
-          setFinancials(mappedRecords);
+          // Merge with any active in-memory records for requestedYear so newly recorded contributions show instantly
+          const activeLocal = getFinancials();
+          const combinedRecords = [...mappedRecords];
+
+          activeLocal.forEach(localRec => {
+            if (localRec.year === requestedYear) {
+              const existingIdx = combinedRecords.findIndex(
+                r => r.userName.trim().toLowerCase() === localRec.userName.trim().toLowerCase()
+              );
+              if (existingIdx !== -1) {
+                // If local has a positive amount and remote sheet still returned 0, preserve local updated amount
+                if (localRec.amount > 0 && combinedRecords[existingIdx].amount === 0) {
+                  combinedRecords[existingIdx] = {
+                    ...combinedRecords[existingIdx],
+                    amount: localRec.amount,
+                    status: 'Paid',
+                    paidAt: localRec.paidAt || combinedRecords[existingIdx].paidAt,
+                    paymentMethod: localRec.paymentMethod || combinedRecords[existingIdx].paymentMethod,
+                    receiptNo: localRec.receiptNo || combinedRecords[existingIdx].receiptNo,
+                  };
+                }
+              } else {
+                // Freshly created Hoob contributor or new member not yet returned by remote Google Sheet
+                combinedRecords.unshift(localRec);
+              }
+            }
+          });
+
+          setFinancials(combinedRecords);
 
           // Also write to local Excel file
           if (typeof window === 'undefined') {
@@ -474,17 +507,27 @@ export async function syncLavajamFromGoogleSheet(targetYear?: number | string): 
                 const headerRow = ['Full Name', 'Fund Type', ...sortedYears];
                 const excelRows = [
                   headerRow,
-                  ...rows.map((r: any) => {
-                    const rowName = String(r['Full Name'] || r['Name'] || r.name || '').trim();
-                    const rowFund = String(r['Fund Type'] || '').trim();
-                    const yearCols = sortedYears.map(yr => {
-                      const val = r[yr];
-                      return (val !== undefined && val !== null && String(val).trim() !== '' && !isNaN(Number(val)))
-                        ? Number(val)
-                        : '';
-                    });
-                    return [rowName, rowFund, ...yearCols];
-                  }),
+                  ...rows
+                    .filter((r: any) => {
+                      const rowName = String(r['Full Name'] || r['Name'] || r.name || '').trim().toUpperCase();
+                      if (!rowName) return false;
+                      if (rowName.includes('ZOZWALA')) return false;
+                      if (rowName.includes('HUSSAIN HANNANBHAI') || (rowName.includes('HUSSAIN') && rowName.includes('MULLAMITHAWALA'))) return false;
+                      if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(rowName)) return false;
+                      if (rowName === 'LAVAJAM' || rowName === 'HOOB') return false;
+                      return true;
+                    })
+                    .map((r: any) => {
+                      const rowName = String(r['Full Name'] || r['Name'] || r.name || '').trim();
+                      const rowFund = String(r['Fund Type'] || '').trim() || (rowName.toLowerCase().includes('bhai') ? 'Hoob' : 'Lavajam');
+                      const yearCols = sortedYears.map(yr => {
+                        const val = r[yr];
+                        return (val !== undefined && val !== null && String(val).trim() !== '' && !isNaN(Number(val)))
+                          ? Number(val)
+                          : '';
+                      });
+                      return [rowName, rowFund, ...yearCols];
+                    }),
                 ];
                 wb.Sheets['Lavajam Details'] = XLSX.utils.aoa_to_sheet(excelRows);
                 if (!wb.SheetNames.includes('Lavajam Details')) {
@@ -497,7 +540,7 @@ export async function syncLavajamFromGoogleSheet(targetYear?: number | string): 
             }
           }
 
-          return { records: mappedRecords, years: sortedYears, selectedYear: requestedYear };
+          return { records: combinedRecords, years: sortedYears, selectedYear: requestedYear };
         }
       }
     }
@@ -540,6 +583,8 @@ export async function syncLavajamFromGoogleSheet(targetYear?: number | string): 
               const upperName = rawName.toUpperCase();
               if (upperName.includes('ZOZWALA')) continue;
               if (upperName.includes('HUSSAIN HANNANBHAI') || (upperName.includes('HUSSAIN') && upperName.includes('MULLAMITHAWALA'))) continue;
+              if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(rawName)) continue;
+              if (upperName === 'LAVAJAM' || upperName === 'HOOB') continue;
 
               const rawFund = String(row[fundCol] || '').trim();
               const isHoob = rawFund.toLowerCase().includes('hoob');
@@ -648,6 +693,7 @@ export async function syncExpensesFromGoogleSheet(): Promise<ExpenseRecord[]> {
           const rawDetails = String(r['Expense Details'] || r.expenseDetails || r.name || '').trim();
           const amount = Number(r.Amount || r.amount || 0);
           const rawDate = String(r.Date || r.date || '24/09/2026').trim();
+          const rawNotes = String(r['Additional Notes'] || r.AdditionalNotes || r.Notes || r.notes || '').trim();
 
           return {
             id: `exp-sheet-${idx + 1}`,
@@ -655,10 +701,27 @@ export async function syncExpensesFromGoogleSheet(): Promise<ExpenseRecord[]> {
             expenseDetails: rawDetails,
             amount,
             category: rawDetails.toLowerCase().includes('banner') ? 'Logistics' : 'Instruments',
+            notes: rawNotes || undefined,
           };
         });
 
-        setExpenses(mappedExpenses);
+        // Merge with any active in-memory expenses so freshly recorded expenses show instantly
+        const activeLocalExpenses = getExpenses();
+        const combinedExpenses = [...mappedExpenses];
+
+        activeLocalExpenses.forEach(localExp => {
+          const exists = combinedExpenses.some(
+            ce =>
+              ce.id === localExp.id ||
+              (ce.expenseDetails.trim().toLowerCase() === localExp.expenseDetails.trim().toLowerCase() &&
+                Number(ce.amount) === Number(localExp.amount))
+          );
+          if (!exists) {
+            combinedExpenses.unshift(localExp);
+          }
+        });
+
+        setExpenses(combinedExpenses);
 
         if (typeof window === 'undefined') {
           try {
@@ -666,11 +729,12 @@ export async function syncExpensesFromGoogleSheet(): Promise<ExpenseRecord[]> {
             if (fs.existsSync(excelPath)) {
               const wb = XLSX.readFile(excelPath);
               const excelRows = [
-                ['Date', 'Expense Details', 'Amount'],
-                ...mappedExpenses.map(exp => [
+                ['Date', 'Expense Details', 'Amount', 'Additional Notes'],
+                ...combinedExpenses.map(exp => [
                   exp.date || '24/09/2026',
                   exp.expenseDetails,
                   exp.amount,
+                  exp.notes || '',
                 ]),
               ];
               wb.Sheets['Instrument Expenses'] = XLSX.utils.aoa_to_sheet(excelRows);
@@ -684,11 +748,51 @@ export async function syncExpensesFromGoogleSheet(): Promise<ExpenseRecord[]> {
           }
         }
 
-        return mappedExpenses;
+        return combinedExpenses;
       }
     }
   } catch (err) {
     console.warn('Failed to sync Instrument Expenses from Google Sheet:', err);
+  }
+
+  // Authoritative Fallback: Read directly from local Excel file (TAHERI_SCOUT_BAND_GROUP_1448H.xlsx -> Instrument Expenses sheet)
+  if (typeof window === 'undefined') {
+    try {
+      const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+      if (fs.existsSync(excelPath)) {
+        const wb = XLSX.readFile(excelPath);
+        const ws = wb.Sheets['Instrument Expenses'];
+        if (ws) {
+          const excelRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+          if (excelRows.length > 1) {
+            const parsedExpenses: ExpenseRecord[] = [];
+            for (let i = 1; i < excelRows.length; i++) {
+              const row = excelRows[i];
+              const dateVal = String(row[0] || '').trim();
+              const detailsVal = String(row[1] || '').trim();
+              const amountVal = Number(row[2]) || 0;
+              const notesVal = String(row[3] || '').trim();
+              if (detailsVal) {
+                parsedExpenses.push({
+                  id: `exp-excel-${i}`,
+                  date: dateVal || '24/09/2026',
+                  expenseDetails: detailsVal,
+                  amount: amountVal,
+                  category: detailsVal.toLowerCase().includes('banner') ? 'Logistics' : 'Instruments',
+                  notes: notesVal || undefined,
+                });
+              }
+            }
+            if (parsedExpenses.length > 0) {
+              setExpenses(parsedExpenses);
+              return parsedExpenses;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Fallback read from local Excel failed for Instrument Expenses:', e);
+    }
   }
 
   return getExpenses();
@@ -1478,12 +1582,15 @@ export function syncLavajamToExcel(
         }
       }
 
-      // Ensure excluded members are never written to Lavajam Details sheet
+      // Ensure excluded members or date/empty rows are never written to Lavajam Details sheet
       const cleanRows = rows.filter((r, idx) => {
         if (idx === 0) return true;
         const rowName = String(r[nameCol] || '').trim().toUpperCase();
+        if (!rowName) return false;
         if (rowName.includes('ZOZWALA')) return false;
         if (rowName.includes('HUSSAIN HANNANBHAI') || (rowName.includes('HUSSAIN') && rowName.includes('MULLAMITHAWALA'))) return false;
+        if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(rowName)) return false;
+        if (rowName === 'LAVAJAM' || rowName === 'HOOB') return false;
         return true;
       });
 
@@ -1505,9 +1612,10 @@ export function syncLavajamToExcel(
  * (TAHERI_SCOUT_BAND_GROUP_1448H.xlsx -> Instrument Expenses sheet)
  */
 export function syncExpenseToExcel(
-  expense: ExpenseRecord,
-  action: 'add' | 'update' | 'delete',
-  originalDetails?: string
+  expense?: ExpenseRecord,
+  action?: 'add' | 'update' | 'delete',
+  originalDetails?: string,
+  originalAmount?: number
 ): void {
   if (typeof window === 'undefined') {
     try {
@@ -1515,63 +1623,23 @@ export function syncExpenseToExcel(
       if (!fs.existsSync(excelPath)) return;
 
       const wb = XLSX.readFile(excelPath);
-      const ws = wb.Sheets['Instrument Expenses'];
-      let rows: any[][] = [];
+      const activeExpenses = getExpenses();
+      const excelRows = [
+        ['Date', 'Expense Details', 'Amount', 'Additional Notes'],
+        ...activeExpenses.map(exp => [
+          exp.date || '24/09/2026',
+          exp.expenseDetails,
+          Number(exp.amount) || 0,
+          exp.notes || '',
+        ]),
+      ];
 
-      if (!ws) {
-        rows = [['Date', 'Expense Details', 'Amount']];
-      } else {
-        rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
-        if (rows.length === 0) {
-          rows.push(['Date', 'Expense Details', 'Amount']);
-        }
-      }
-
-      const targetDetails = (originalDetails || expense.expenseDetails || '').trim().toLowerCase();
-      let matchIndex = -1;
-      for (let i = 1; i < rows.length; i++) {
-        const rowDetails = String(rows[i]?.[1] || '').trim().toLowerCase();
-        if (rowDetails === targetDetails) {
-          matchIndex = i;
-          break;
-        }
-      }
-
-      const dateStr = expense.date || '24/09/2026';
-      const amountNum = Number(expense.amount) || 0;
-
-      if (action === 'delete') {
-        if (matchIndex > 0) {
-          rows.splice(matchIndex, 1);
-        }
-      } else if (action === 'update') {
-        if (matchIndex > 0) {
-          rows[matchIndex] = [
-            dateStr,
-            expense.expenseDetails,
-            amountNum
-          ];
-        } else {
-          rows.push([
-            dateStr,
-            expense.expenseDetails,
-            amountNum
-          ]);
-        }
-      } else if (action === 'add') {
-        rows.push([
-          dateStr,
-          expense.expenseDetails,
-          amountNum
-        ]);
-      }
-
-      const newWs = XLSX.utils.aoa_to_sheet(rows);
-      wb.Sheets['Instrument Expenses'] = newWs;
+      wb.Sheets['Instrument Expenses'] = XLSX.utils.aoa_to_sheet(excelRows);
       if (!wb.SheetNames.includes('Instrument Expenses')) {
         wb.SheetNames.push('Instrument Expenses');
       }
       XLSX.writeFile(wb, excelPath);
+      console.log('SYNC EXPENSE TO EXCEL SUCCESS: updated', excelPath, 'rows:', excelRows.length);
     } catch (err) {
       console.warn('Failed to sync Instrument Expenses to local Excel:', err);
     }
@@ -1630,7 +1698,8 @@ export async function postLavajamToGoogleSheet(
 export async function postExpenseToGoogleSheet(
   expense: ExpenseRecord,
   action: 'add' | 'update' | 'delete',
-  originalDetails?: string
+  originalDetails?: string,
+  originalAmount?: number
 ): Promise<{ success: boolean; message: string }> {
   const config = getGoogleSheetConfig();
   if (!config.appsScriptUrl) {
@@ -1652,9 +1721,16 @@ export async function postExpenseToGoogleSheet(
           date: expense.date || '24/09/2026',
           expenseDetails: expense.expenseDetails,
           originalDetails: originalDetails || expense.expenseDetails,
+          originalAmount: originalAmount !== undefined ? originalAmount : expense.amount,
           amount: expense.amount,
+          notes: expense.notes || '',
+          additionalNotes: expense.notes || '',
         },
         expenseDetails: originalDetails || expense.expenseDetails,
+        originalAmount: originalAmount !== undefined ? originalAmount : expense.amount,
+        amount: originalAmount !== undefined ? originalAmount : expense.amount,
+        notes: expense.notes || '',
+        additionalNotes: expense.notes || '',
       }),
     });
     const resData = await response.json().catch(() => ({}));
@@ -2032,6 +2108,311 @@ export async function deleteReferenceLinkFromGoogleSheet(
     return { success: true, message: data.message || 'Deleted from Reference Link sheet' };
   } catch (err: any) {
     return { success: false, message: err?.message || 'Failed to delete from sheet' };
+  }
+}
+
+// ----------------- ASSIGN NOTES SHEET SUPPORT -----------------
+
+export interface AssignNoteRecord {
+  memberName: string;
+  assignedTunes: string; // Comma-separated: "tune1, tune2, tune3"
+  section?: string;
+  itsNumber?: string;
+  lastUpdated?: string;
+}
+
+/**
+ * Reads all Assigned Notes from 'Assign Notes' sheet in Excel
+ */
+export function getAssignedNotesFromExcel(): AssignNoteRecord[] {
+  if (typeof window === 'undefined') {
+    try {
+      const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+      if (!fs.existsSync(excelPath)) return [];
+
+      const fileBuf = fs.readFileSync(excelPath);
+      const wb = XLSX.read(fileBuf, { type: 'buffer' });
+      const ws = wb.Sheets['Assign Notes'];
+      if (!ws) return [];
+
+      const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+      if (rawRows.length < 2) return [];
+
+      const records: AssignNoteRecord[] = [];
+      for (let i = 1; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        if (!row || !row[0]) continue;
+        records.push({
+          memberName: String(row[0] || '').trim(),
+          assignedTunes: String(row[1] || '').trim(),
+          section: String(row[2] || '').trim(),
+          itsNumber: String(row[3] || '').trim(),
+          lastUpdated: String(row[4] || ''),
+        });
+      }
+      return records;
+    } catch (err) {
+      console.warn('Failed to read Assign Notes from Excel:', err);
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * Updates or adds an assigned note entry for a member in 'Assign Notes' sheet in Excel.
+ * Formats multiple tunes for a member as a comma-separated list: "tune1, tune2, tune3".
+ */
+export function saveAssignedNoteToExcel(
+  memberName: string,
+  tuneName: string,
+  action: 'assign' | 'unassign' = 'assign',
+  details?: { section?: string; itsNumber?: string }
+): { success: boolean; assignedTunes: string } {
+  if (typeof window === 'undefined') {
+    try {
+      const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+      if (!fs.existsSync(excelPath)) return { success: false, assignedTunes: '' };
+
+      const fileBuf = fs.readFileSync(excelPath);
+      const wb = XLSX.read(fileBuf, { type: 'buffer' });
+      let ws = wb.Sheets['Assign Notes'];
+      const headers = ['Member Name', 'Assigned Tunes', 'Section', 'ITS Number', 'Last Updated'];
+
+      let rows: any[][] = [];
+      if (!ws) {
+        rows = [headers];
+      } else {
+        rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+        if (rows.length === 0 || rows[0][0] !== 'Member Name') {
+          rows = [headers];
+        }
+      }
+
+      const cleanMemberName = memberName.trim();
+      const cleanTuneName = tuneName.trim();
+      if (!cleanMemberName || !cleanTuneName) return { success: false, assignedTunes: '' };
+
+      const memberLower = cleanMemberName.toLowerCase();
+      let rowIndex = -1;
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (row && String(row[0] || '').trim().toLowerCase() === memberLower) {
+          rowIndex = i;
+          break;
+        }
+      }
+
+      const timestamp = new Date().toISOString();
+      let finalTunesStr = '';
+
+      if (rowIndex !== -1) {
+        // Member exists
+        const currentTunesStr = String(rows[rowIndex][1] || '').trim();
+        const existingTunes = currentTunesStr
+          ? currentTunesStr.split(',').map(t => t.trim()).filter(Boolean)
+          : [];
+
+        if (action === 'assign') {
+          const alreadyAssigned = existingTunes.some(t => t.toLowerCase() === cleanTuneName.toLowerCase());
+          if (!alreadyAssigned) {
+            existingTunes.push(cleanTuneName);
+          }
+        } else {
+          // Unassign
+          const filtered = existingTunes.filter(t => t.toLowerCase() !== cleanTuneName.toLowerCase());
+          existingTunes.length = 0;
+          existingTunes.push(...filtered);
+        }
+
+        finalTunesStr = existingTunes.join(', ');
+        rows[rowIndex][1] = finalTunesStr;
+        if (details?.section && !rows[rowIndex][2]) rows[rowIndex][2] = details.section;
+        if (details?.itsNumber && !rows[rowIndex][3]) rows[rowIndex][3] = details.itsNumber;
+        rows[rowIndex][4] = timestamp;
+      } else if (action === 'assign') {
+        // Add new row for member
+        finalTunesStr = cleanTuneName;
+        rows.push([
+          cleanMemberName,
+          finalTunesStr,
+          details?.section || '',
+          details?.itsNumber || '',
+          timestamp,
+        ]);
+      }
+
+      wb.Sheets['Assign Notes'] = XLSX.utils.aoa_to_sheet(rows);
+      if (!wb.SheetNames.includes('Assign Notes')) {
+        wb.SheetNames.push('Assign Notes');
+      }
+
+      const outBuf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      fs.writeFileSync(excelPath, outBuf);
+      return { success: true, assignedTunes: finalTunesStr };
+    } catch (err) {
+      console.warn('Failed to save Assign Note to Excel:', err);
+      return { success: false, assignedTunes: '' };
+    }
+  }
+  return { success: false, assignedTunes: '' };
+}
+
+/**
+ * Batch updates assigned tunes for multiple members for a specific tune in 'Assign Notes' sheet in Excel.
+ * Formats multiple tunes for a member as a comma-separated list: "tune1, tune2, tune3".
+ */
+export function batchAssignTuneInExcel(
+  tuneName: string,
+  assignments: { memberName: string; itsNumber?: string; section?: string; assigned: boolean }[]
+): boolean {
+  if (typeof window === 'undefined') {
+    try {
+      const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+      if (!fs.existsSync(excelPath)) return false;
+
+      const fileBuf = fs.readFileSync(excelPath);
+      const wb = XLSX.read(fileBuf, { type: 'buffer' });
+      let ws = wb.Sheets['Assign Notes'];
+      const headers = ['Member Name', 'Assigned Tunes', 'Section', 'ITS Number', 'Last Updated'];
+
+      let rows: any[][] = [];
+      if (!ws) {
+        rows = [headers];
+      } else {
+        rows = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+        if (rows.length === 0 || rows[0][0] !== 'Member Name') {
+          rows = [headers];
+        }
+      }
+
+      const cleanTuneName = tuneName.trim();
+      if (!cleanTuneName) return false;
+      const timestamp = new Date().toISOString();
+
+      assignments.forEach(item => {
+        const cleanName = (item.memberName || '').trim();
+        if (!cleanName) return;
+        const nameLower = cleanName.toLowerCase();
+
+        let rowIndex = -1;
+        for (let i = 1; i < rows.length; i++) {
+          if (rows[i] && String(rows[i][0] || '').trim().toLowerCase() === nameLower) {
+            rowIndex = i;
+            break;
+          }
+        }
+
+        if (rowIndex !== -1) {
+          const currentTunesStr = String(rows[rowIndex][1] || '').trim();
+          const existingTunes = currentTunesStr
+            ? currentTunesStr.split(',').map(t => t.trim()).filter(Boolean)
+            : [];
+
+          if (item.assigned) {
+            if (!existingTunes.some(t => t.toLowerCase() === cleanTuneName.toLowerCase())) {
+              existingTunes.push(cleanTuneName);
+            }
+          } else {
+            const filtered = existingTunes.filter(t => t.toLowerCase() !== cleanTuneName.toLowerCase());
+            existingTunes.length = 0;
+            existingTunes.push(...filtered);
+          }
+
+          rows[rowIndex][1] = existingTunes.join(', ');
+          if (item.section) rows[rowIndex][2] = item.section;
+          if (item.itsNumber) rows[rowIndex][3] = item.itsNumber;
+          rows[rowIndex][4] = timestamp;
+        } else if (item.assigned) {
+          rows.push([
+            cleanName,
+            cleanTuneName,
+            item.section || '',
+            item.itsNumber || '',
+            timestamp,
+          ]);
+        }
+      });
+
+      wb.Sheets['Assign Notes'] = XLSX.utils.aoa_to_sheet(rows);
+      if (!wb.SheetNames.includes('Assign Notes')) {
+        wb.SheetNames.push('Assign Notes');
+      }
+
+      const outBuf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      fs.writeFileSync(excelPath, outBuf);
+      return true;
+    } catch (err) {
+      console.warn('Failed to batch assign tune in Excel:', err);
+      return false;
+    }
+  }
+  return false;
+}
+
+/**
+ * Gets list of tune names assigned to a particular member by Name or ITS
+ */
+export function getAssignedTuneNamesForMember(memberNameOrIts: string): string[] {
+  const records = getAssignedNotesFromExcel();
+  if (!memberNameOrIts) return [];
+  const query = memberNameOrIts.trim().toLowerCase();
+
+  const matchingRecords = records.filter(
+    r =>
+      r.memberName.toLowerCase() === query ||
+      (r.itsNumber && r.itsNumber.toLowerCase() === query) ||
+      r.memberName.toLowerCase().includes(query) ||
+      query.includes(r.memberName.toLowerCase())
+  );
+
+  const tunesSet = new Set<string>();
+  matchingRecords.forEach(rec => {
+    if (rec.assignedTunes) {
+      rec.assignedTunes
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean)
+        .forEach(t => tunesSet.add(t));
+    }
+  });
+
+  return Array.from(tunesSet);
+}
+
+/**
+ * Syncs Assign Notes to Google Sheet via Apps Script Web App
+ */
+export async function syncAssignNotesToGoogleSheet(
+  memberName: string,
+  tuneName: string,
+  assignedTunesStr: string,
+  details?: { section?: string; itsNumber?: string }
+): Promise<{ success: boolean; message: string }> {
+  const config = getGoogleSheetConfig();
+  if (!config.appsScriptUrl) {
+    return { success: false, message: 'Google Apps Script URL not configured.' };
+  }
+  try {
+    const res = await fetch(config.appsScriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'assignNotes',
+        sheetName: 'Assign Notes',
+        memberName,
+        tuneName,
+        assignedTunes: assignedTunesStr,
+        section: details?.section || '',
+        itsNumber: details?.itsNumber || '',
+        timestamp: new Date().toISOString(),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { success: true, message: data.message || 'Synced with Assign Notes sheet in Google Sheet' };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Failed to sync with Google Sheet' };
   }
 }
 

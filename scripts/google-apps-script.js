@@ -85,6 +85,26 @@ function doGet(e) {
       }
     }
 
+    // Cleanup extra / invalid date rows in Lavajam Details sheet
+    if (param.action === "cleanupLavajam") {
+      var lavSheetClean = ss.getSheetByName("Lavajam Details");
+      if (lavSheetClean) {
+        var lavDataClean = lavSheetClean.getDataRange().getValues();
+        var deletedLavCount = 0;
+        for (var lrc = lavDataClean.length - 1; lrc >= 1; lrc--) {
+          var rowNameClean = String(lavDataClean[lrc][0] || "").trim();
+          if (!rowNameClean || /^\d{1,2}\/\d{1,2}\/\d{4}/.test(rowNameClean) || rowNameClean.toLowerCase() === "lavajam" || rowNameClean.toLowerCase() === "hoob") {
+            lavSheetClean.deleteRow(lrc + 1);
+            deletedLavCount++;
+          }
+        }
+        return createJsonResponse({
+          success: true,
+          message: "Cleaned up " + deletedLavCount + " invalid rows from Lavajam Details sheet."
+        });
+      }
+    }
+
     // Fetch Reference Link sheet data
     if (param.action === "getReferenceLinks" || param.sheet === "Reference Link") {
       var refSheet = ss.getSheetByName("Reference Link");
@@ -119,6 +139,34 @@ function doGet(e) {
       });
     }
 
+    if (param.action === "getAssignNotes" || param.sheet === "Assign Notes") {
+      var assignSheet = ss.getSheetByName("Assign Notes");
+      if (!assignSheet) {
+        return createJsonResponse({ success: true, count: 0, assignedNotes: [] });
+      }
+      var assignData = assignSheet.getDataRange().getValues();
+      if (assignData.length < 2) {
+        return createJsonResponse({ success: true, count: 0, assignedNotes: [] });
+      }
+      var notes = [];
+      for (var an = 1; an < assignData.length; an++) {
+        var aRow = assignData[an];
+        if (!aRow || !aRow[0]) continue;
+        notes.push({
+          memberName: String(aRow[0] || "").trim(),
+          assignedTunes: String(aRow[1] || "").trim(),
+          section: String(aRow[2] || "").trim(),
+          itsNumber: String(aRow[3] || "").trim(),
+          lastUpdated: String(aRow[4] || "")
+        });
+      }
+      return createJsonResponse({
+        success: true,
+        count: notes.length,
+        assignedNotes: notes
+      });
+    }
+
     var sheetName = param.sheet || "Member Details";
     var sheet = ss.getSheetByName(sheetName) || ss.getSheets()[0];
     var data = sheet.getDataRange().getValues();
@@ -145,9 +193,29 @@ function doGet(e) {
         continue;
       }
 
+      // In Lavajam Details, rows must have a valid contributor name in Column A (never a date or empty)
+      if (sheetName === "Lavajam Details") {
+        var rawColA = String(row[0] || "").trim();
+        if (!rawColA || /^\d{1,2}\/\d{1,2}\/\d{4}/.test(rawColA) || rawColA.toLowerCase() === "lavajam" || rawColA.toLowerCase() === "hoob") {
+          continue;
+        }
+      }
+
+      // In Instrument Expenses, rows must have valid expense details in Column B
+      if (sheetName === "Instrument Expenses") {
+        var rawDetails = String(row[1] || "").trim();
+        if (!rawDetails || rawDetails.toLowerCase() === "expense details" || rawDetails.toLowerCase() === "details") {
+          continue;
+        }
+      }
+
       var item = {};
       for (var j = 0; j < headers.length; j++) {
-        item[headers[j]] = row[j];
+        var val = row[j];
+        if (val instanceof Date) {
+          val = Utilities.formatDate(val, Session.getScriptTimeZone() || "Asia/Kolkata", "dd/MM/yyyy");
+        }
+        item[headers[j]] = val;
       }
       members.push(item);
     }
@@ -529,109 +597,7 @@ function doPost(e) {
       });
     }
 
-    // ------------------------------------------------------------------------
-    // ACTION: addLavajamRecord
-    // ------------------------------------------------------------------------
-    if (action === "addLavajamRecord") {
-      var lavSheet = ss.getSheetByName("Lavajam Details");
-      if (!lavSheet) {
-        lavSheet = ss.insertSheet("Lavajam Details");
-        lavSheet.appendRow(["Date", "Full Name", "Fund Type", "Amount"]);
-      }
-      var rec = body.record || body;
-      var dateVal = String(rec.date || "").trim();
-      if (!dateVal) {
-        var d = new Date();
-        var dd = String(d.getDate()).padStart(2, '0');
-        var mm = String(d.getMonth() + 1).padStart(2, '0');
-        dateVal = dd + "/" + mm + "/" + d.getFullYear();
-      }
-      var nameVal = String(rec.userName || rec.name || rec["Full Name"] || "").trim();
-      var fundVal = String(rec.fundType || rec["Fund Type"] || "Lavajam").trim();
-      var amountVal = Number(rec.amount || 0);
 
-      lavSheet.appendRow([dateVal, nameVal, fundVal, amountVal]);
-      return createJsonResponse({
-        success: true,
-        message: "Lavajam record for " + nameVal + " added to Lavajam Details sheet."
-      });
-    }
-
-    // ------------------------------------------------------------------------
-    // ACTION: updateLavajamRecord
-    // ------------------------------------------------------------------------
-    if (action === "updateLavajamRecord") {
-      var lavSheet = ss.getSheetByName("Lavajam Details");
-      if (!lavSheet) return createJsonResponse({ error: "Lavajam Details sheet not found." });
-      var rec = body.record || body;
-      var targetName = String(rec.originalName || rec.userName || rec.name || "").trim().toLowerCase();
-      var dateVal = String(rec.date || "").trim();
-      var fundVal = String(rec.fundType || "Lavajam").trim();
-      var amountVal = Number(rec.amount || 0);
-      var newName = String(rec.userName || rec.name || "").trim();
-
-      var data = lavSheet.getDataRange().getValues();
-      var targetRow = -1;
-      if (body.rowIndex && body.rowIndex > 1 && body.rowIndex <= data.length) {
-        targetRow = body.rowIndex;
-      } else {
-        for (var r = 1; r < data.length; r++) {
-          var rowName = String(data[r][1] || "").trim().toLowerCase();
-          if (rowName === targetName) {
-            targetRow = r + 1;
-            break;
-          }
-        }
-      }
-
-      if (targetRow > 0) {
-        if (dateVal) lavSheet.getRange(targetRow, 1).setValue(dateVal);
-        if (newName) lavSheet.getRange(targetRow, 2).setValue(newName);
-        if (fundVal) lavSheet.getRange(targetRow, 3).setValue(fundVal);
-        if (amountVal) lavSheet.getRange(targetRow, 4).setValue(amountVal);
-        return createJsonResponse({
-          success: true,
-          message: "Lavajam record updated at row " + targetRow
-        });
-      } else {
-        lavSheet.appendRow([dateVal, newName, fundVal, amountVal]);
-        return createJsonResponse({
-          success: true,
-          message: "Lavajam record appended as new row in Lavajam Details sheet."
-        });
-      }
-    }
-
-    // ------------------------------------------------------------------------
-    // ACTION: deleteLavajamRecord
-    // ------------------------------------------------------------------------
-    if (action === "deleteLavajamRecord") {
-      var lavSheet = ss.getSheetByName("Lavajam Details");
-      if (!lavSheet) return createJsonResponse({ error: "Lavajam Details sheet not found." });
-      var targetName = String(body.userName || body.name || "").trim().toLowerCase();
-      var data = lavSheet.getDataRange().getValues();
-      var deleteRow = -1;
-      if (body.rowIndex && body.rowIndex > 1 && body.rowIndex <= data.length) {
-        deleteRow = body.rowIndex;
-      } else {
-        for (var r = 1; r < data.length; r++) {
-          var rowName = String(data[r][1] || "").trim().toLowerCase();
-          if (rowName === targetName) {
-            deleteRow = r + 1;
-            break;
-          }
-        }
-      }
-
-      if (deleteRow > 0) {
-        lavSheet.deleteRow(deleteRow);
-        return createJsonResponse({
-          success: true,
-          message: "Lavajam record removed from row " + deleteRow
-        });
-      }
-      return createJsonResponse({ success: false, message: "Record not found in Lavajam Details." });
-    }
 
     // ------------------------------------------------------------------------
     // ACTION: addLavajamRecord / updateLavajamRecord / syncLavajamYearEntry
@@ -784,14 +750,22 @@ function doPost(e) {
       var expSheet = ss.getSheetByName("Instrument Expenses");
       if (!expSheet) {
         expSheet = ss.insertSheet("Instrument Expenses");
-        expSheet.appendRow(["Date", "Expense Details", "Amount"]);
+        expSheet.appendRow(["Date", "Expense Details", "Amount", "Additional Notes"]);
       }
       var exp = body.expense || body;
       var dateVal = String(exp.date || "").trim();
       var detailsVal = String(exp.expenseDetails || exp.name || "").trim();
       var amountVal = Number(exp.amount || 0);
+      var notesVal = String(exp.additionalNotes || exp.notes || body.additionalNotes || body.notes || "").trim();
 
-      expSheet.appendRow([dateVal, detailsVal, amountVal]);
+      // Ensure 4th header column is "Additional Notes"
+      var colCount = Math.max(expSheet.getLastColumn(), 3);
+      var headers = expSheet.getRange(1, 1, 1, colCount).getValues()[0];
+      if (headers.length < 4 || String(headers[3] || "").trim().toLowerCase() !== "additional notes") {
+        expSheet.getRange(1, 4).setValue("Additional Notes");
+      }
+
+      expSheet.appendRow([dateVal, detailsVal, amountVal, notesVal]);
       return createJsonResponse({
         success: true,
         message: "Expense '" + detailsVal + "' recorded in Instrument Expenses sheet."
@@ -806,9 +780,18 @@ function doPost(e) {
       if (!expSheet) return createJsonResponse({ error: "Instrument Expenses sheet not found." });
       var exp = body.expense || body;
       var targetDetails = String(exp.originalDetails || exp.expenseDetails || "").trim().toLowerCase();
+      var targetAmount = exp.originalAmount !== undefined ? Number(exp.originalAmount) : (body.originalAmount !== undefined ? Number(body.originalAmount) : undefined);
       var dateVal = String(exp.date || "").trim();
       var detailsVal = String(exp.expenseDetails || "").trim();
       var amountVal = Number(exp.amount || 0);
+      var notesVal = String(exp.additionalNotes || exp.notes || body.additionalNotes || body.notes || "").trim();
+
+      // Ensure 4th header column is "Additional Notes"
+      var colCount = Math.max(expSheet.getLastColumn(), 3);
+      var headers = expSheet.getRange(1, 1, 1, colCount).getValues()[0];
+      if (headers.length < 4 || String(headers[3] || "").trim().toLowerCase() !== "additional notes") {
+        expSheet.getRange(1, 4).setValue("Additional Notes");
+      }
 
       var data = expSheet.getDataRange().getValues();
       var targetRow = -1;
@@ -817,9 +800,17 @@ function doPost(e) {
       } else {
         for (var r = 1; r < data.length; r++) {
           var rowDetails = String(data[r][1] || "").trim().toLowerCase();
+          var rowAmount = Number(data[r][2] || 0);
           if (rowDetails === targetDetails) {
-            targetRow = r + 1;
-            break;
+            if (targetAmount !== undefined && !isNaN(targetAmount)) {
+              if (rowAmount === targetAmount) {
+                targetRow = r + 1;
+                break;
+              }
+            } else {
+              targetRow = r + 1;
+              break;
+            }
           }
         }
       }
@@ -828,12 +819,13 @@ function doPost(e) {
         if (dateVal) expSheet.getRange(targetRow, 1).setValue(dateVal);
         if (detailsVal) expSheet.getRange(targetRow, 2).setValue(detailsVal);
         if (amountVal) expSheet.getRange(targetRow, 3).setValue(amountVal);
+        expSheet.getRange(targetRow, 4).setValue(notesVal);
         return createJsonResponse({
           success: true,
           message: "Expense updated at row " + targetRow
         });
       } else {
-        expSheet.appendRow([dateVal, detailsVal, amountVal]);
+        expSheet.appendRow([dateVal, detailsVal, amountVal, notesVal]);
         return createJsonResponse({
           success: true,
           message: "Expense appended in Instrument Expenses sheet."
@@ -848,6 +840,7 @@ function doPost(e) {
       var expSheet = ss.getSheetByName("Instrument Expenses");
       if (!expSheet) return createJsonResponse({ error: "Instrument Expenses sheet not found." });
       var targetDetails = String(body.expenseDetails || body.name || "").trim().toLowerCase();
+      var targetAmount = body.amount !== undefined ? Number(body.amount) : undefined;
       var data = expSheet.getDataRange().getValues();
       var deleteRow = -1;
       if (body.rowIndex && body.rowIndex > 1 && body.rowIndex <= data.length) {
@@ -855,9 +848,17 @@ function doPost(e) {
       } else {
         for (var r = 1; r < data.length; r++) {
           var rowDetails = String(data[r][1] || "").trim().toLowerCase();
+          var rowAmount = Number(data[r][2] || 0);
           if (rowDetails === targetDetails) {
-            deleteRow = r + 1;
-            break;
+            if (targetAmount !== undefined && !isNaN(targetAmount)) {
+              if (rowAmount === targetAmount) {
+                deleteRow = r + 1;
+                break;
+              }
+            } else {
+              deleteRow = r + 1;
+              break;
+            }
           }
         }
       }
@@ -1015,11 +1016,57 @@ function doPost(e) {
       return createJsonResponse({ success: false, message: "Tune not found in Reference Link sheet." });
     }
 
+    // ------------------------------------------------------------------------
+    // ACTION: assignNotes
+    // ------------------------------------------------------------------------
+    if (action === "assignNotes") {
+      var assignSheet = ss.getSheetByName("Assign Notes");
+      var headers = ["Member Name", "Assigned Tunes", "Section", "ITS Number", "Last Updated"];
+      if (!assignSheet) {
+        assignSheet = ss.insertSheet("Assign Notes");
+        assignSheet.appendRow(headers);
+      }
+      var memberName = String(body.memberName || "").trim();
+      var tuneName = String(body.tuneName || "").trim();
+      var section = String(body.section || "").trim();
+      var itsNumber = String(body.itsNumber || "").trim();
+      var timestamp = body.timestamp || new Date().toISOString();
+
+      if (memberName) {
+        var assignData = assignSheet.getDataRange().getValues();
+        var foundRow = -1;
+        for (var a = 1; a < assignData.length; a++) {
+          if (String(assignData[a][0] || "").trim().toLowerCase() === memberName.toLowerCase()) {
+            foundRow = a + 1;
+            break;
+          }
+        }
+        if (foundRow > 0) {
+          var currTunes = String(assignSheet.getRange(foundRow, 2).getValue() || "").trim();
+          var tList = currTunes ? currTunes.split(",").map(function(s) { return s.trim(); }).filter(Boolean) : [];
+          if (tuneName && !tList.some(function(t) { return t.toLowerCase() === tuneName.toLowerCase(); })) {
+            tList.push(tuneName);
+          }
+          assignSheet.getRange(foundRow, 2).setValue(tList.join(", "));
+          if (section) assignSheet.getRange(foundRow, 3).setValue(section);
+          if (itsNumber) assignSheet.getRange(foundRow, 4).setValue(itsNumber);
+          assignSheet.getRange(foundRow, 5).setValue(timestamp);
+        } else {
+          assignSheet.appendRow([memberName, tuneName, section, itsNumber, timestamp]);
+        }
+      }
+      return createJsonResponse({
+        success: true,
+        message: "Assigned note recorded in Assign Notes sheet."
+      });
+    }
+
     return createJsonResponse({ error: "Unknown action: " + action });
   } catch (err) {
     return createJsonResponse({ error: err.toString() });
   }
 }
+
 
 /**
  * Utility: Dynamically maps header names to column zero-based indices

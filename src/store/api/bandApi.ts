@@ -44,7 +44,7 @@ const baseQueryWithSessionCheck: BaseQueryFn<string | FetchArgs, unknown, FetchB
 export const bandApi = createApi({
   reducerPath: 'bandApi',
   baseQuery: baseQueryWithSessionCheck,
-  tagTypes: ['Users', 'Financials', 'PersonalFinancials', 'Attendance', 'Reports', 'Tunes', 'Expenses', 'ReferenceLinks'],
+  tagTypes: ['Users', 'Financials', 'PersonalFinancials', 'Attendance', 'Reports', 'Tunes', 'Expenses', 'ReferenceLinks', 'AssignNotes'],
   endpoints: (builder) => ({
     // Auth
     getMe: builder.query<{ authenticated: boolean; user: User | null }, void>({
@@ -183,11 +183,22 @@ export const bandApi = createApi({
       }),
       invalidatesTags: ['Financials', 'PersonalFinancials'],
     }),
-    deleteFinancialRecord: builder.mutation<{ success: boolean }, string>({
-      query: (arg) => ({
-        url: arg.startsWith('?') ? `/financials${arg}` : (arg.includes('=') ? `/financials?${arg}` : `/financials?id=${arg}`),
-        method: 'DELETE',
-      }),
+    deleteFinancialRecord: builder.mutation<
+      { success: boolean; message?: string },
+      string | { id?: string; year?: string; name?: string; userName?: string }
+    >({
+      query: (arg) => {
+        if (typeof arg === 'string') {
+          const formatted = arg.startsWith('?') ? arg : (arg.includes('=') ? `?${arg}` : `?id=${arg}`);
+          return { url: `/financials${formatted}`, method: 'DELETE' };
+        }
+        const params = new URLSearchParams();
+        if (arg.id) params.append('id', arg.id);
+        if (arg.year) params.append('year', arg.year);
+        const nameVal = arg.name || arg.userName;
+        if (nameVal) params.append('name', nameVal);
+        return { url: `/financials?${params.toString()}`, method: 'DELETE' };
+      },
       invalidatesTags: ['Financials', 'PersonalFinancials'],
     }),
 
@@ -263,7 +274,7 @@ export const bandApi = createApi({
       query: () => '/expenses',
       providesTags: ['Expenses'],
     }),
-    createExpense: builder.mutation<{ success: boolean; expense: ExpenseRecord }, Partial<ExpenseRecord>>({
+    createExpense: builder.mutation<{ success: boolean; expense: ExpenseRecord }, Partial<ExpenseRecord> & { additionalNotes?: string }>({
       query: (body) => ({
         url: '/expenses',
         method: 'POST',
@@ -271,7 +282,7 @@ export const bandApi = createApi({
       }),
       invalidatesTags: ['Expenses'],
     }),
-    updateExpense: builder.mutation<{ success: boolean; expense: ExpenseRecord }, Partial<ExpenseRecord> & { originalDetails?: string }>({
+    updateExpense: builder.mutation<{ success: boolean; expense: ExpenseRecord }, Partial<ExpenseRecord> & { originalDetails?: string; originalAmount?: number; additionalNotes?: string }>({
       query: (body) => ({
         url: '/expenses',
         method: 'PUT',
@@ -279,11 +290,22 @@ export const bandApi = createApi({
       }),
       invalidatesTags: ['Expenses'],
     }),
-    deleteExpense: builder.mutation<{ success: boolean }, string>({
-      query: (id) => ({
-        url: `/expenses?id=${id}`,
-        method: 'DELETE',
-      }),
+    deleteExpense: builder.mutation<
+      { success: boolean; message?: string },
+      string | { id?: string; details?: string; expenseDetails?: string; amount?: number }
+    >({
+      query: (arg) => {
+        if (typeof arg === 'string') {
+          const formatted = arg.startsWith('?') ? arg : (arg.includes('=') ? `?${arg}` : `?id=${arg}`);
+          return { url: `/expenses${formatted}`, method: 'DELETE' };
+        }
+        const params = new URLSearchParams();
+        if (arg.id) params.append('id', arg.id);
+        const detVal = arg.details || arg.expenseDetails;
+        if (detVal) params.append('details', detVal);
+        if (arg.amount !== undefined) params.append('amount', String(arg.amount));
+        return { url: `/expenses?${params.toString()}`, method: 'DELETE' };
+      },
       invalidatesTags: ['Expenses'],
     }),
 
@@ -314,6 +336,23 @@ export const bandApi = createApi({
         method: 'DELETE',
       }),
       invalidatesTags: ['ReferenceLinks', 'Tunes'],
+    }),
+
+    // Assign Notes (Assign Notes Sheet in Excel)
+    getAssignedNotes: builder.query<{ assignedNotes: any[]; userAssignedTunes: string[] }, void>({
+      query: () => '/assign-notes',
+      providesTags: ['AssignNotes'],
+    }),
+    assignNotes: builder.mutation<
+      { success: boolean; message: string; assignedTunes?: string },
+      { tuneName: string; memberName?: string; memberNames?: string[]; assignments?: any[]; action?: 'assign' | 'unassign'; section?: string; itsNumber?: string }
+    >({
+      query: (body) => ({
+        url: '/assign-notes',
+        method: 'POST',
+        body,
+      }),
+      invalidatesTags: ['AssignNotes', 'Tunes', 'ReferenceLinks'],
     }),
   }),
 });
@@ -350,4 +389,7 @@ export const {
   useAddReferenceLinkMutation,
   useUpdateReferenceLinkMutation,
   useDeleteReferenceLinkMutation,
+  useGetAssignedNotesQuery,
+  useAssignNotesMutation,
 } = bandApi;
+

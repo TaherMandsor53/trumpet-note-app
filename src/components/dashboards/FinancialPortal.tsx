@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   useGetFinancialsQuery,
   useCreateFinancialRecordMutation,
@@ -19,8 +19,10 @@ import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ThemedDatePicker } from '@/components/ui/ThemedDatePicker';
+import { Pagination } from '@/components/ui/pagination';
 import { LavajamCharts } from '@/components/financial/LavajamCharts';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { useToast } from '@/components/ui/toast';
 import { LavajamRecord, LavajamStatus, ExpenseRecord } from '@/types/band';
 import {
   Coins,
@@ -34,9 +36,13 @@ import {
   ArrowUpDown,
   CreditCard,
   Building,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 
 export function FinancialPortal() {
+  const { toast } = useToast();
+
   // Active Tab: 'contributions' or 'expenses'
   const [activeTab, setActiveTab] = useState<'contributions' | 'expenses'>('contributions');
 
@@ -70,12 +76,25 @@ export function FinancialPortal() {
   const [isEditExpenseOpen, setIsEditExpenseOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<ExpenseRecord | null>(null);
 
+  // Deletion Confirmation States (Replaces browser alert/confirm with themed dialogs)
+  const [deleteConfirmContribution, setDeleteConfirmContribution] = useState<LavajamRecord | null>(null);
+  const [isDeletingContribution, setIsDeletingContribution] = useState(false);
+
+  const [deleteConfirmExpense, setDeleteConfirmExpense] = useState<ExpenseRecord | null>(null);
+  const [isDeletingExpense, setIsDeletingExpense] = useState(false);
+
+  // Pagination States (Default 10 records per page as requested)
+  const [contributionPage, setContributionPage] = useState(1);
+  const [contributionPageSize, setContributionPageSize] = useState(10);
+  const [expensePage, setExpensePage] = useState(1);
+  const [expensePageSize, setExpensePageSize] = useState(10);
+
   // Contribution Form State
   const [fundType, setFundType] = useState<'Lavajam' | 'Hoob'>('Lavajam');
   const [formUserId, setFormUserId] = useState('');
   const [formHoobName, setFormHoobName] = useState('');
   const [formYear, setFormYear] = useState('2026');
-  const [formAmount, setFormAmount] = useState(1000);
+  const [formAmount, setFormAmount] = useState<number | ''>(1000);
   const [formStatus, setFormStatus] = useState<LavajamStatus>('Paid');
 
   // Expense Form State
@@ -125,35 +144,51 @@ export function FinancialPortal() {
   };
 
   // Filtered records for Contributions
-  const filteredContributions = records.filter(r => {
-    // Strictly exclude M ISMAIL SH YUSUFBHAI ZOZWALA and HUSSAIN HANNANBHAI MULLAMITHAWALA
-    const uName = (r.userName || '').toUpperCase();
-    if (uName.includes('ZOZWALA')) return false;
-    if (uName.includes('HUSSAIN HANNANBHAI') || (uName.includes('HUSSAIN') && uName.includes('MULLAMITHAWALA'))) return false;
+  const filteredContributions = useMemo(() => {
+    return records.filter(r => {
+      // Strictly exclude M ISMAIL SH YUSUFBHAI ZOZWALA and HUSSAIN HANNANBHAI MULLAMITHAWALA
+      const uName = (r.userName || '').toUpperCase();
+      if (uName.includes('ZOZWALA')) return false;
+      if (uName.includes('HUSSAIN HANNANBHAI') || (uName.includes('HUSSAIN') && uName.includes('MULLAMITHAWALA'))) return false;
 
-    const displaySec = getDisplaySection(r);
-    const memberRole = getMemberRole(r);
+      const displaySec = getDisplaySection(r);
+      const memberRole = getMemberRole(r);
 
-    const matchesSearch =
-      r.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (r.fundType && r.fundType.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      displaySec.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      memberRole.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesSearch =
+        r.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (r.fundType && r.fundType.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        displaySec.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        memberRole.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
-    const matchesSection = sectionFilter === 'All' || displaySec === sectionFilter || r.section === sectionFilter;
+      const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
+      const matchesSection = sectionFilter === 'All' || displaySec === sectionFilter || r.section === sectionFilter;
 
-    return matchesSearch && matchesStatus && matchesSection;
-  });
+      return matchesSearch && matchesStatus && matchesSection;
+    });
+  }, [records, searchTerm, statusFilter, sectionFilter, users]);
+
+  // Paginated Contributions (default 10 records per page)
+  const paginatedContributions = useMemo(() => {
+    const startIndex = (contributionPage - 1) * contributionPageSize;
+    return filteredContributions.slice(startIndex, startIndex + contributionPageSize);
+  }, [filteredContributions, contributionPage, contributionPageSize]);
 
   // Filtered records for Expenses
-  const filteredExpenses = expenses.filter(e => {
-    return (
-      e.expenseDetails.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (e.date && e.date.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (e.category && e.category.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
-  });
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter(e => {
+      return (
+        e.expenseDetails.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (e.date && e.date.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (e.category && e.category.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
+    });
+  }, [expenses, searchTerm]);
+
+  // Paginated Expenses (default 10 records per page)
+  const paginatedExpenses = useMemo(() => {
+    const startIndex = (expensePage - 1) * expensePageSize;
+    return filteredExpenses.slice(startIndex, startIndex + expensePageSize);
+  }, [filteredExpenses, expensePage, expensePageSize]);
 
   // Reset Contribution Form
   const resetContributionForm = () => {
@@ -182,7 +217,7 @@ export function FinancialPortal() {
     setFormUserId(rec.userId || '');
     setFormHoobName(rec.fundType === 'Hoob' ? rec.userName : '');
     setFormYear(String(rec.year || selectedYear));
-    setFormAmount(rec.amount);
+    setFormAmount(rec.amount !== undefined && rec.amount !== null ? rec.amount : '');
     setFormStatus(rec.status);
     setIsEditContributionOpen(true);
   };
@@ -214,11 +249,19 @@ export function FinancialPortal() {
       const contributorName = fundType === 'Lavajam' ? (memberObj?.name || '') : formHoobName.trim();
 
       if (!contributorName) {
-        alert(fundType === 'Lavajam' ? 'Please select a band member.' : 'Please enter contributor name.');
+        toast.warning(
+          'Missing Contributor',
+          fundType === 'Lavajam' ? 'Please select a band member from the list.' : 'Please enter the Hoob contributor name.'
+        );
         return;
       }
 
       const amt = Number(formAmount) || 0;
+      if (amt <= 0 && formStatus === 'Paid') {
+        toast.warning('Invalid Amount', 'Please specify a contribution amount greater than 0.');
+        return;
+      }
+
       const isMufaddal = (contributorName || '').toUpperCase().includes('VALINABU');
       const resolvedSection = isMufaddal ? 'Major' : (memberObj?.section || (fundType === 'Hoob' ? 'External / Hoob' : 'General'));
 
@@ -233,12 +276,21 @@ export function FinancialPortal() {
         status: amt > 0 ? 'Paid' : 'Unpaid',
       }).unwrap();
 
+      toast.success(
+        'Contribution Recorded',
+        `Successfully recorded ${formatCurrency(amt)} ${fundType} for ${contributorName} (${formYear}).`
+      );
+
+      if (formYear && formYear !== selectedYear) {
+        setSelectedYear(formYear);
+      }
       setIsAddContributionOpen(false);
       resetContributionForm();
-      refetchFin();
-    } catch (err) {
+      setContributionPage(1);
+      await refetchFin();
+    } catch (err: any) {
       console.error('Failed to create contribution record', err);
-      alert('Failed to save contribution. Please try again.');
+      toast.error('Failed to Record Contribution', err?.data?.error || err?.message || 'Could not record contribution. Please try again.');
     }
   };
 
@@ -250,6 +302,11 @@ export function FinancialPortal() {
     try {
       const memberObj = fundType === 'Lavajam' ? users.find(u => u.id === formUserId) : null;
       const contributorName = fundType === 'Lavajam' ? (memberObj?.name || editingContribution.userName) : formHoobName.trim();
+
+      if (!contributorName) {
+        toast.warning('Missing Contributor', 'Please provide a valid contributor name.');
+        return;
+      }
 
       const amt = Number(formAmount) || 0;
       const isMufaddal = (contributorName || '').toUpperCase().includes('VALINABU');
@@ -268,93 +325,169 @@ export function FinancialPortal() {
         status: amt > 0 ? 'Paid' : 'Unpaid',
       } as any).unwrap();
 
+      toast.success(
+        'Contribution Updated',
+        `Successfully updated ${contributorName}'s contribution to ${formatCurrency(amt)} (${formYear}).`
+      );
+
+      if (formYear && formYear !== selectedYear) {
+        setSelectedYear(formYear);
+      }
       setIsEditContributionOpen(false);
       setEditingContribution(null);
       resetContributionForm();
-      refetchFin();
-    } catch (err) {
+      await refetchFin();
+    } catch (err: any) {
       console.error('Failed to update contribution record', err);
-      alert('Failed to update contribution. Please try again.');
+      toast.error('Update Failed', err?.data?.error || err?.message || 'Could not update contribution.');
     }
   };
 
-  // Handle Delete Contribution (DELETE)
-  const handleDeleteContribution = async (rec: LavajamRecord) => {
-    const isHoob = (rec.fundType || '').toLowerCase().includes('hoob');
-    const confirmMsg = isHoob
-      ? `Are you sure you want to delete the Hoob contribution for "${rec.userName}"?`
-      : `Are you sure you want to clear the ${selectedYear} contribution for "${rec.userName}"? This will mark this member as Unpaid in Excel and Google Sheet.`;
+  // Trigger Deletion Confirmation Modal for Contribution
+  const handleDeleteContribution = (rec: LavajamRecord) => {
+    setDeleteConfirmContribution(rec);
+  };
 
-    if (confirm(confirmMsg)) {
-      try {
-        await deleteFinancialRecord(`id=${rec.id}&year=${selectedYear}`).unwrap();
-        refetchFin();
-      } catch (err) {
-        console.error('Failed to delete contribution record', err);
-      }
+  // Confirm and execute Contribution deletion / clearing
+  const handleConfirmDeleteContribution = async () => {
+    if (!deleteConfirmContribution) return;
+    const rec = deleteConfirmContribution;
+    const isHoob = (rec.fundType || '').toLowerCase().includes('hoob');
+    setIsDeletingContribution(true);
+
+    try {
+      await deleteFinancialRecord({
+        id: rec.id,
+        year: selectedYear,
+        name: rec.userName,
+      }).unwrap();
+
+      toast.success(
+        isHoob ? 'Hoob Record Removed' : 'Contribution Cleared',
+        isHoob
+          ? `Deleted Hoob contribution record for "${rec.userName}".`
+          : `Cleared ${selectedYear} contribution for "${rec.userName}" (status marked as Unpaid).`
+      );
+
+      setDeleteConfirmContribution(null);
+      await refetchFin();
+    } catch (err: any) {
+      console.error('Failed to delete contribution record', err);
+      toast.error('Delete Failed', err?.data?.error || err?.message || 'Could not delete contribution record.');
+    } finally {
+      setIsDeletingContribution(false);
     }
   };
 
   // Handle Save Expense (POST)
   const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!expName.trim()) {
-      alert('Please enter expense name / details.');
+    const details = expName.trim();
+    if (!details) {
+      toast.warning('Missing Expense Details', 'Please enter expense name or details.');
       return;
     }
+    const amt = Number(expAmount) || 0;
+    if (amt <= 0) {
+      toast.warning('Invalid Amount', 'Please enter a valid expense amount greater than 0.');
+      return;
+    }
+
     try {
       await createExpense({
         date: expDate,
-        expenseDetails: expName.trim(),
-        amount: Number(expAmount) || 0,
+        expenseDetails: details,
+        amount: amt,
         category: expCategory,
         notes: expNotes || undefined,
+        additionalNotes: expNotes || undefined,
       }).unwrap();
+
+      toast.success(
+        'Expense Recorded',
+        `Recorded expense "${details}" for ${formatCurrency(amt)} in Instrument Expenses.`
+      );
 
       setIsAddExpenseOpen(false);
       resetExpenseForm();
-      refetchExp();
-    } catch (err) {
+      setExpensePage(1);
+      await refetchExp();
+    } catch (err: any) {
       console.error('Failed to record expense', err);
-      alert('Failed to record expense. Please try again.');
+      toast.error('Failed to Record Expense', err?.data?.error || err?.message || 'Could not record expense. Please try again.');
     }
   };
 
   // Handle Update Expense (PUT)
   const handleUpdateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingExpense || !expName.trim()) return;
+    if (!editingExpense) return;
+    const details = expName.trim();
+    if (!details) {
+      toast.warning('Missing Expense Details', 'Please enter expense name or details.');
+      return;
+    }
+
+    const amt = Number(expAmount) || 0;
 
     try {
       await updateExpense({
         id: editingExpense.id,
         originalDetails: editingExpense.expenseDetails,
+        originalAmount: editingExpense.amount,
         date: expDate,
-        expenseDetails: expName.trim(),
-        amount: Number(expAmount) || 0,
+        expenseDetails: details,
+        amount: amt,
         category: expCategory,
         notes: expNotes || undefined,
+        additionalNotes: expNotes || undefined,
       }).unwrap();
+
+      toast.success(
+        'Expense Updated',
+        `Updated expense "${details}" (${formatCurrency(amt)}) in Instrument Expenses.`
+      );
 
       setIsEditExpenseOpen(false);
       setEditingExpense(null);
       resetExpenseForm();
-      refetchExp();
-    } catch (err) {
+      await refetchExp();
+    } catch (err: any) {
       console.error('Failed to update expense', err);
-      alert('Failed to update expense. Please try again.');
+      toast.error('Update Failed', err?.data?.error || err?.message || 'Could not update expense.');
     }
   };
 
-  // Handle Delete Expense (DELETE)
-  const handleDeleteExpense = async (exp: ExpenseRecord) => {
-    if (confirm(`Are you sure you want to delete the expense "${exp.expenseDetails}"? This will remove it from Excel and Google Sheet.`)) {
-      try {
-        await deleteExpense(exp.id).unwrap();
-        refetchExp();
-      } catch (err) {
-        console.error('Failed to delete expense', err);
-      }
+  // Trigger Deletion Confirmation Modal for Expense
+  const handleDeleteExpense = (exp: ExpenseRecord) => {
+    setDeleteConfirmExpense(exp);
+  };
+
+  // Confirm and execute Expense deletion
+  const handleConfirmDeleteExpense = async () => {
+    if (!deleteConfirmExpense) return;
+    const exp = deleteConfirmExpense;
+    setIsDeletingExpense(true);
+
+    try {
+      await deleteExpense({
+        id: exp.id,
+        details: exp.expenseDetails,
+        amount: exp.amount,
+      }).unwrap();
+
+      toast.success(
+        'Expense Deleted',
+        `Removed "${exp.expenseDetails}" from Instrument Expenses.`
+      );
+
+      setDeleteConfirmExpense(null);
+      await refetchExp();
+    } catch (err: any) {
+      console.error('Failed to delete expense', err);
+      toast.error('Delete Failed', err?.data?.error || err?.message || 'Could not delete expense.');
+    } finally {
+      setIsDeletingExpense(false);
     }
   };
 
@@ -553,7 +686,7 @@ export function FinancialPortal() {
                 No contribution records matching the current filters.
               </div>
             ) : (
-              filteredContributions.map(record => {
+              paginatedContributions.map(record => {
                 const displaySection = getDisplaySection(record);
                 const memberRole = getMemberRole(record);
                 const isMajorSection = displaySection === 'Major';
@@ -674,7 +807,7 @@ export function FinancialPortal() {
                     </td>
                   </tr>
                 ) : (
-                  filteredContributions.map(record => {
+                  paginatedContributions.map(record => {
                     const displaySection = getDisplaySection(record);
                     const memberRole = getMemberRole(record);
                     const isMajorSection = displaySection === 'Major';
@@ -768,6 +901,18 @@ export function FinancialPortal() {
               </tbody>
             </table>
           </div>
+
+          {/* Contributions Pagination */}
+          {filteredContributions.length > 0 && (
+            <Pagination
+              currentPage={contributionPage}
+              totalItems={filteredContributions.length}
+              pageSize={contributionPageSize}
+              pageSizeOptions={[10, 20, 50, 100]}
+              onPageChange={setContributionPage}
+              onPageSizeChange={setContributionPageSize}
+            />
+          )}
         </Card>
       )}
 
@@ -783,7 +928,7 @@ export function FinancialPortal() {
                 No expense records recorded yet.
               </div>
             ) : (
-              filteredExpenses.map(expense => (
+              paginatedExpenses.map(expense => (
                 <div
                   key={expense.id}
                   className="p-3.5 rounded-xl border border-border/70 bg-card/90 space-y-2.5 shadow-xs"
@@ -852,7 +997,7 @@ export function FinancialPortal() {
                     </td>
                   </tr>
                 ) : (
-                  filteredExpenses.map(expense => (
+                  paginatedExpenses.map(expense => (
                     <tr key={expense.id} className="hover:bg-muted/30 transition-colors">
                       <td className="py-3 px-4 font-mono font-medium text-foreground">
                         {expense.date || '24/09/2026'}
@@ -899,6 +1044,18 @@ export function FinancialPortal() {
               </tbody>
             </table>
           </div>
+
+          {/* Expenses Pagination */}
+          {filteredExpenses.length > 0 && (
+            <Pagination
+              currentPage={expensePage}
+              totalItems={filteredExpenses.length}
+              pageSize={expensePageSize}
+              pageSizeOptions={[10, 20, 50, 100]}
+              onPageChange={setExpensePage}
+              onPageSizeChange={setExpensePageSize}
+            />
+          )}
         </Card>
       )}
 
@@ -995,7 +1152,7 @@ export function FinancialPortal() {
             <Input
               type="number"
               value={formAmount}
-              onChange={e => setFormAmount(Number(e.target.value))}
+              onChange={e => setFormAmount(e.target.value === '' ? '' : Number(e.target.value))}
               placeholder="1000"
               className="text-xs w-full"
               required
@@ -1106,7 +1263,8 @@ export function FinancialPortal() {
             <Input
               type="number"
               value={formAmount}
-              onChange={e => setFormAmount(Number(e.target.value))}
+              onChange={e => setFormAmount(e.target.value === '' ? '' : Number(e.target.value))}
+              placeholder="1000"
               className="text-xs w-full"
               required
             />
@@ -1323,6 +1481,175 @@ export function FinancialPortal() {
           </DialogFooter>
         </form>
       </Dialog>
+
+      {/* ========================================================
+          MODAL 5: DELETE CONTRIBUTION CONFIRMATION
+         ======================================================== */}
+      <Dialog
+        open={Boolean(deleteConfirmContribution)}
+        onOpenChange={open => !open && !isDeletingContribution && setDeleteConfirmContribution(null)}
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-rose-500">
+            <AlertTriangle className="w-5 h-5" />
+            Confirm Deletion / Clear Record
+          </DialogTitle>
+          <DialogDescription>
+            Please confirm before proceeding with this action on the financial ledger.
+          </DialogDescription>
+        </DialogHeader>
+
+        {deleteConfirmContribution && (
+          <div className="space-y-4 py-2 text-xs">
+            <div className="p-3 rounded-lg border border-border bg-muted/40 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Contributor Name:</span>
+                <span className="font-bold text-foreground text-sm">{deleteConfirmContribution.userName}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Fund Type:</span>
+                <Badge variant="outline" className="font-medium">
+                  {deleteConfirmContribution.fundType || 'Lavajam'}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Ledger Year:</span>
+                <span className="font-semibold text-foreground">{selectedYear}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Recorded Amount:</span>
+                <span className="font-bold text-foreground">
+                  {formatCurrency(deleteConfirmContribution.amount || 0)}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs leading-relaxed">
+              {(deleteConfirmContribution.fundType || '').toLowerCase().includes('hoob') ? (
+                <span>
+                  <strong>Notice:</strong> This is an external Hoob contribution. Confirming will permanently remove this record from <strong>Google Sheets</strong> and <strong>Excel (Lavajam Details)</strong>.
+                </span>
+              ) : (
+                <span>
+                  <strong>Notice:</strong> This is a registered Band Member. Confirming will reset their <strong>{selectedYear}</strong> contribution to <strong>₹0</strong> and mark their status as <strong>Unpaid</strong> in Google Sheets and Excel. Member registration details will remain intact.
+                </span>
+              )}
+            </div>
+
+            <DialogFooter className="gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDeleteConfirmContribution(null)}
+                disabled={isDeletingContribution}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleConfirmDeleteContribution}
+                disabled={isDeletingContribution}
+                className="bg-rose-600 hover:bg-rose-700 text-white gap-1.5"
+              >
+                {isDeletingContribution ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Confirm Delete
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </Dialog>
+
+      {/* ========================================================
+          MODAL 6: DELETE EXPENSE CONFIRMATION
+         ======================================================== */}
+      <Dialog
+        open={Boolean(deleteConfirmExpense)}
+        onOpenChange={open => !open && !isDeletingExpense && setDeleteConfirmExpense(null)}
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-rose-500">
+            <AlertTriangle className="w-5 h-5" />
+            Confirm Delete Expense
+          </DialogTitle>
+          <DialogDescription>
+            This action will permanently delete the expense from Instrument Expenses.
+          </DialogDescription>
+        </DialogHeader>
+
+        {deleteConfirmExpense && (
+          <div className="space-y-4 py-2 text-xs">
+            <div className="p-3 rounded-lg border border-border bg-muted/40 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Expense Details:</span>
+                <span className="font-bold text-foreground text-sm">{deleteConfirmExpense.expenseDetails}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Category:</span>
+                <Badge variant="outline" className="font-medium">
+                  {deleteConfirmExpense.category || 'General'}
+                </Badge>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Date:</span>
+                <span className="font-semibold text-foreground">
+                  {deleteConfirmExpense.date ? formatDate(deleteConfirmExpense.date) : '-'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Amount:</span>
+                <span className="font-bold text-rose-500 text-sm">
+                  {formatCurrency(deleteConfirmExpense.amount || 0)}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs leading-relaxed">
+              <strong>Warning:</strong> This expense record will be permanently deleted from <strong>Excel</strong> and <strong>Google Sheets</strong> under <strong>Instrument Expenses</strong>. This action cannot be reversed.
+            </div>
+
+            <DialogFooter className="gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDeleteConfirmExpense(null)}
+                disabled={isDeletingExpense}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleConfirmDeleteExpense}
+                disabled={isDeletingExpense}
+                className="bg-rose-600 hover:bg-rose-700 text-white gap-1.5"
+              >
+                {isDeletingExpense ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Confirm Delete
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </Dialog>
     </div>
   );
 }
+

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   useGetUsersQuery,
   useGetTunesQuery,
@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Pagination } from '@/components/ui/pagination';
 import { InstrumentSection, Role, User } from '@/types/band';
 import { ALL_SECTIONS, ALL_ROLES } from '@/lib/rbac';
 import { formatDate, getDaysRemainingForNewBadge } from '@/lib/utils';
@@ -51,17 +52,28 @@ export function ExecutiveDashboard() {
   const [searchMember, setSearchMember] = useState('');
   const [sectionFilter, setSectionFilter] = useState('All');
 
+  // Pagination State (Default 10 per page as requested)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
   const users = usersData?.users || [];
   const tunes = tunesData?.tunes || [];
 
-  const filteredUsers = users.filter(u => {
-    const matchSearch =
-      u.name.toLowerCase().includes(searchMember.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchMember.toLowerCase()) ||
-      (u.itsNumber && u.itsNumber.includes(searchMember));
-    const matchSection = sectionFilter === 'All' || u.section === sectionFilter;
-    return matchSearch && matchSection;
-  });
+  const filteredUsers = useMemo(() => {
+    return users.filter(u => {
+      const matchSearch =
+        u.name.toLowerCase().includes(searchMember.toLowerCase()) ||
+        u.email.toLowerCase().includes(searchMember.toLowerCase()) ||
+        (u.itsNumber && u.itsNumber.includes(searchMember));
+      const matchSection = sectionFilter === 'All' || u.section === sectionFilter;
+      return matchSearch && matchSection;
+    });
+  }, [users, searchMember, sectionFilter]);
+
+  const paginatedUsers = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredUsers.slice(startIndex, startIndex + pageSize);
+  }, [filteredUsers, currentPage, pageSize]);
 
   const { toast } = useToast();
 
@@ -235,7 +247,7 @@ export function ExecutiveDashboard() {
                   No members matching search or section filter.
                 </div>
               ) : (
-                filteredUsers.map(u => (
+                paginatedUsers.map(u => (
                   <div
                     key={u.id}
                     className="p-3.5 rounded-xl border border-border/70 bg-card/80 space-y-2"
@@ -309,7 +321,7 @@ export function ExecutiveDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {filteredUsers.map(u => (
+                  {paginatedUsers.map(u => (
                     <tr key={u.id} className="hover:bg-muted/20 transition-colors">
                       <td className="py-2.5 px-3 font-semibold text-foreground">{u.name}</td>
                       <td className="py-2.5 px-3 font-mono text-muted-foreground">{u.email}</td>
@@ -354,6 +366,18 @@ export function ExecutiveDashboard() {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination for Member Directory */}
+            {filteredUsers.length > 0 && (
+              <Pagination
+                currentPage={currentPage}
+                totalItems={filteredUsers.length}
+                pageSize={pageSize}
+                pageSizeOptions={[10, 20, 50, 100]}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={setPageSize}
+              />
+            )}
           </CardContent>
         </Card>
       )}

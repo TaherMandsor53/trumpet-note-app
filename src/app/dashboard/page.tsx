@@ -92,15 +92,15 @@ export default function DashboardPage() {
   const isTabAllowedForRole = (tab: string, role: string, user?: any) => {
     const r = role as Role;
     if (tab === 'dashboard') return true; // All roles have role-wise dashboard!
-    if (isOverallMajor(r)) return true;
     if (isTreasurer(r, user || currentUser)) {
-      return ['dashboard', 'financials', 'member-portal', 'section', 'attendance', 'org-chart', 'transposer', 'videos'].includes(tab);
+      return ['dashboard', 'financials', 'member-portal', 'section', 'attendance', 'org-chart', 'transposer'].includes(tab);
     }
+    if (isOverallMajor(r)) return true;
     if (isInstrumentMajor(r)) {
       return ['dashboard', 'section', 'attendance', 'org-chart', 'transposer', 'videos'].includes(tab);
     }
     if (role === 'Band Member / Player' || role.endsWith('Member') || role === 'Instrument Maintainer') {
-      return ['dashboard', 'member-portal', 'attendance', 'org-chart', 'transposer', 'videos'].includes(tab);
+      return ['dashboard', 'member-portal', 'attendance', 'org-chart', 'transposer'].includes(tab);
     }
     return false;
   };

@@ -1,61 +1,125 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import { RootState } from '@/store';
 import {
-  useGetPersonalFinancialsQuery,
   useGetTunesQuery,
-  useGetAttendanceSessionsQuery,
+  useGetAssignedNotesQuery,
+  useGetReferenceLinksQuery,
 } from '@/store/api/bandApi';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { formatCurrency, formatDate, getDaysRemainingForNewBadge } from '@/lib/utils';
+import { formatDate, getDaysRemainingForNewBadge } from '@/lib/utils';
 import {
   UserCheck,
-  Coins,
   Music,
-  CalendarDays,
   FileText,
-  Clock,
-  Sparkles,
-  ExternalLink,
-  ShieldCheck,
-  CheckCircle2,
-  AlertCircle,
 } from 'lucide-react';
 
 export function MemberPortal() {
   const currentUser = useSelector((state: RootState) => state.auth.user);
-  const { data: personalFin, isLoading: isLoadingFin } = useGetPersonalFinancialsQuery();
+
+  // Queries for catalog tunes, Excel Assign Notes sheet, and Reference Links
   const { data: tunesData, isLoading: isLoadingTunes } = useGetTunesQuery({ section: currentUser?.section });
-  const { data: attendanceData } = useGetAttendanceSessionsQuery();
+  const { data: assignedNotesData, isLoading: isLoadingAssigned } = useGetAssignedNotesQuery();
+  const { data: refLinksData, isLoading: isLoadingRefLinks } = useGetReferenceLinksQuery();
 
-  const tunes = tunesData?.tunes || [];
-  const sessions = attendanceData?.sessions || [];
+  const catalogTunes = tunesData?.tunes || [];
+  const assignedRecords = assignedNotesData?.assignedNotes || [];
+  const userAssignedTunes = assignedNotesData?.userAssignedTunes || [];
+  const allRefLinks = refLinksData?.referenceLinks || [];
 
-  // Compute personal attendance history
-  const personalAttendance = sessions.map(s => {
-    const entry = s.records.find(r => r.userId === currentUser?.id);
-    return {
-      sessionDate: s.date,
-      sessionTitle: s.sessionTitle,
-      status: entry?.status || 'Absent',
-    };
-  });
+  // Match current member in Assign Notes sheet by ITS or Member Name
+  const myAssignRecord = useMemo(() => {
+    if (!currentUser) return null;
+    return assignedRecords.find(
+      (r: any) =>
+        (currentUser.itsNumber && String(r.itsNumber).trim() === String(currentUser.itsNumber).trim()) ||
+        (currentUser.name && String(r.memberName).toLowerCase().trim() === currentUser.name.toLowerCase().trim()) ||
+        (currentUser.name && String(r.memberName).toLowerCase().includes(currentUser.name.toLowerCase()))
+    );
+  }, [assignedRecords, currentUser]);
 
-  const presentCount = personalAttendance.filter(
-    a => a.status === 'Present' || a.status === 'Late'
-  ).length;
+  // Set of all tune titles / keys assigned to the current member
+  const assignedTuneNames = useMemo(() => {
+    const set = new Set<string>();
+    if (myAssignRecord?.assignedTunes) {
+      myAssignRecord.assignedTunes
+        .split(',')
+        .map((s: string) => s.trim().toLowerCase())
+        .filter(Boolean)
+        .forEach((name: string) => set.add(name));
+    }
+    userAssignedTunes.forEach((s: string) => {
+      const trimmed = s.trim().toLowerCase();
+      if (trimmed) set.add(trimmed);
+    });
+    return set;
+  }, [myAssignRecord, userAssignedTunes]);
 
-  const attendancePercent =
-    personalAttendance.length > 0
-      ? Math.round((presentCount / personalAttendance.length) * 100)
-      : 100;
+  // Unified list of ONLY scores assigned to this Member by Section Major
+  const unifiedAssignedNotes = useMemo(() => {
+    const list: any[] = [];
+    const seenTitles = new Set<string>();
 
-  const latestPayment = personalFin?.latestRecord;
-  const isPaid = personalFin?.currentStatus === 'Paid';
+    // Strict Privacy: A score is ONLY assigned if it explicitly matches the member's assigned tunes from Assign Notes sheet
+    if (assignedTuneNames.size === 0) {
+      return [];
+    }
+
+    // 1. Catalog Tunes (from db/API) that match the member's assigned tunes from Assign Notes sheet
+    catalogTunes.forEach(tune => {
+      const titleLower = tune.title.trim().toLowerCase();
+      const keyLower = tune.key ? tune.key.trim().toLowerCase() : '';
+      const arabicLower = tune.arabicName ? tune.arabicName.trim().toLowerCase() : '';
+      const isAssignedInSheet =
+        assignedTuneNames.has(titleLower) ||
+        (keyLower && assignedTuneNames.has(keyLower)) ||
+        (arabicLower && assignedTuneNames.has(arabicLower));
+
+      if (isAssignedInSheet) {
+        seenTitles.add(titleLower);
+        if (keyLower) seenTitles.add(keyLower);
+        list.push({
+          id: tune.id,
+          title: tune.title,
+          section: tune.section,
+          pdfUrl: tune.pdfUrl,
+          audioUrl: tune.audioUrl,
+          difficulty: tune.difficulty || 'Intermediate',
+          tempo: tune.tempo || '112 BPM',
+          createdAt: tune.createdAt,
+          isNew: tune.isNew,
+        });
+      }
+    });
+
+    // 2. Reference Link scores uploaded and assigned by Section Major
+    allRefLinks.forEach(ref => {
+      const refTitleLower = (ref.tuneName || '').trim().toLowerCase();
+      if (!refTitleLower) return;
+
+      if (assignedTuneNames.has(refTitleLower) && !seenTitles.has(refTitleLower)) {
+        seenTitles.add(refTitleLower);
+        list.push({
+          id: ref.id || `ref-${ref.tuneName}`,
+          title: ref.tuneName,
+          section: ref.instrumentType || currentUser?.section || 'Trumpet',
+          pdfUrl: ref.fileUrl,
+          audioUrl: ref.youtubeLink,
+          difficulty: 'Intermediate',
+          tempo: 'Standard Scales',
+          createdAt: ref.timestamp || ref.createdAt,
+          isNew: true,
+        });
+      }
+    });
+
+    return list;
+  }, [catalogTunes, allRefLinks, assignedTuneNames, currentUser]);
+
+  const isLoading = isLoadingTunes || isLoadingAssigned || isLoadingRefLinks;
 
   return (
     <div className="space-y-6">
@@ -74,131 +138,24 @@ export function MemberPortal() {
             </p>
           </div>
 
-          {/* Quick Lavajam Badge Pill */}
+          {/* Quick Assigned Notes Count Pill */}
           <div className="flex items-center gap-3">
             <div className="text-right">
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
-                Lavajam Status
+                Assigned Scores
               </p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <Badge
-                  variant={isPaid ? 'emerald' : 'destructive'}
-                  className="text-xs py-1 px-3 font-bold"
+                  variant="outline"
+                  className="text-xs py-1 px-3 font-bold border-amber-500/40 text-amber-500 bg-amber-500/10"
                 >
-                  {isPaid ? 'PAID' : 'PENDING'}
+                  <Music className="w-3 h-3 mr-1 inline" />
+                  {unifiedAssignedNotes.length} Assigned {unifiedAssignedNotes.length === 1 ? 'Score' : 'Scores'}
                 </Badge>
               </div>
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Top Cards: Personal Lavajam Status & Personal Attendance */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Personal Financial (Lavajam) Card */}
-        <Card className={`border-2 ${isPaid ? 'border-emerald-500/40' : 'border-rose-500/40'} shadow-sm`}>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <Coins className="w-4 h-4 text-emerald-400" />
-                Personal Lavajam Contribution Status
-              </span>
-              <Badge variant={isPaid ? 'emerald' : 'destructive'} className="text-[11px]">
-                {isPaid ? 'Current Month Paid' : 'Payment Due'}
-              </Badge>
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Your band contribution covers uniform maintenance, instrument tuning, and sheet music.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-xs">
-            {isLoadingFin ? (
-              <p className="text-muted-foreground">Loading contribution data...</p>
-            ) : latestPayment ? (
-              <div className="space-y-2 bg-muted/20 p-3 rounded-lg border border-border/60">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Contribution Cycle:</span>
-                  <span className="font-semibold text-foreground">
-                    {latestPayment.month} {latestPayment.year}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Standard Contribution:</span>
-                  <span className="font-bold text-foreground text-sm">
-                    {formatCurrency(latestPayment.amount)}
-                  </span>
-                </div>
-                {latestPayment.paidAt && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Payment Date:</span>
-                    <span className="font-medium text-foreground">{formatDate(latestPayment.paidAt)}</span>
-                  </div>
-                )}
-                {latestPayment.receiptNo && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Official Receipt No:</span>
-                    <span className="font-mono font-bold text-primary">{latestPayment.receiptNo}</span>
-                  </div>
-                )}
-                {latestPayment.transactionRef && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Payment Ref:</span>
-                    <span className="font-mono text-muted-foreground">{latestPayment.transactionRef}</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-4 bg-muted/20 rounded-lg">
-                <p className="text-muted-foreground">No recent payment record registered.</p>
-              </div>
-            )}
-            <p className="text-[10px] text-muted-foreground italic">
-              * Privacy Shield: Other band members' financial figures and central ledger amounts are restricted.
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Personal Practice Attendance Card */}
-        <Card className="border border-border shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <CalendarDays className="w-4 h-4 text-primary" />
-                Practice Attendance Record
-              </span>
-              <span className="font-bold text-lg text-primary">{attendancePercent}%</span>
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Attended {presentCount} of {personalAttendance.length} practice drills.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <div className="w-full bg-muted rounded-full h-2 overflow-hidden mb-3">
-              <div
-                className="bg-primary h-2 rounded-full transition-all"
-                style={{ width: `${attendancePercent}%` }}
-              />
-            </div>
-            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-              {personalAttendance.slice(0, 5).map((att, i) => (
-                <div
-                  key={i}
-                  className="flex items-center justify-between p-2 rounded-md border border-border/50 bg-muted/10 text-xs"
-                >
-                  <span className="font-medium text-foreground truncate max-w-[200px]">
-                    {att.sessionTitle}
-                  </span>
-                  <Badge
-                    variant={att.status === 'Present' ? 'emerald' : att.status === 'Late' ? 'default' : 'destructive'}
-                    className="text-[10px] py-0"
-                  >
-                    {att.status}
-                  </Badge>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Assigned Sheet Music & Tune Catalog with 15-day "NEW" badge logic */}
@@ -211,28 +168,30 @@ export function MemberPortal() {
                 Your Stored Madeh Notes &amp; Section Repertoire
               </CardTitle>
               <CardDescription className="text-xs">
-                Sacred Madeh scores assigned directly to you for Mola's Milad Mubarak processions and rehearsal drills.
+                Sacred Madeh scores assigned directly to you for Mola&apos;s Milad Mubarak processions and rehearsal drills.
               </CardDescription>
             </div>
             <Badge variant="outline" className="text-xs">
-              {tunes.length} Stored Madeh Notes
+              {unifiedAssignedNotes.length} Stored Madeh {unifiedAssignedNotes.length === 1 ? 'Note' : 'Notes'}
             </Badge>
           </div>
         </CardHeader>
         <CardContent>
-          {isLoadingTunes ? (
+          {isLoading ? (
             <div className="py-8 text-center text-muted-foreground text-xs">
-              Loading sheet music...
+              Loading your assigned sheet music...
             </div>
-          ) : tunes.length === 0 ? (
-            <div className="py-8 text-center text-muted-foreground text-xs">
-              No sheet music currently assigned. Check back after your next practice session!
+          ) : unifiedAssignedNotes.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground text-xs space-y-2">
+              <Music className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+              <p className="font-semibold text-foreground text-sm">No Sheet Music Currently Assigned</p>
+              <p>You currently do not have any notes assigned by your Section Major. Check back after your next practice session!</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {tunes.map(tune => {
-                const isNew = tune.isNew;
-                const daysRemaining = isNew ? getDaysRemainingForNewBadge(tune.createdAt) : 0;
+              {unifiedAssignedNotes.map(tune => {
+                const daysRemaining = tune.createdAt ? getDaysRemainingForNewBadge(tune.createdAt) : 0;
+                const isNew = tune.isNew !== undefined ? tune.isNew : daysRemaining > 0;
 
                 return (
                   <div
@@ -244,9 +203,9 @@ export function MemberPortal() {
                         <h4 className="font-serif font-bold text-sm text-foreground group-hover:text-primary transition-colors">
                           {tune.title}
                         </h4>
-                        {isNew && (
+                        {isNew && daysRemaining > 0 && (
                           <Badge variant="new" className="shrink-0">
-                            NEW ({daysRemaining}d)
+                            NEW ({daysRemaining}D)
                           </Badge>
                         )}
                       </div>
@@ -259,16 +218,22 @@ export function MemberPortal() {
 
                     <div className="flex items-center justify-between pt-2 border-t border-border/40 text-xs">
                       <span className="text-[10px] text-muted-foreground">
-                        Added {formatDate(tune.createdAt)}
+                        {tune.createdAt ? `Added ${formatDate(tune.createdAt)}` : 'Assigned Score'}
                       </span>
-                      <a
-                        href={tune.pdfUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-xs hover:opacity-90 transition-opacity"
-                      >
-                        <FileText className="w-3.5 h-3.5" /> Open Notes PDF
-                      </a>
+                      {tune.pdfUrl ? (
+                        <a
+                          href={tune.pdfUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-semibold shadow-xs hover:opacity-90 transition-opacity"
+                        >
+                          <FileText className="w-3.5 h-3.5" /> Open Notes PDF
+                        </a>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground italic">
+                          PDF Score Pending
+                        </span>
+                      )}
                     </div>
                   </div>
                 );

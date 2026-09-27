@@ -29,7 +29,7 @@ declare global {
   } | undefined;
 }
 
-function getDatabase() {
+export function getDatabase() {
   if (!globalThis.__bandDatabase) {
     globalThis.__bandDatabase = {
       users: [...INITIAL_USERS],
@@ -121,6 +121,41 @@ function getDatabase() {
     // If attendance is empty after removing mock records, load real sessions from Attendance Details Excel sheet
     if (globalThis.__bandDatabase.attendance.length === 0) {
       globalThis.__bandDatabase.attendance = loadSessionsFromExcel();
+    }
+
+    // Sync tunes.assignedUserIds strictly from Assign Notes sheet in Excel
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { getAssignedNotesFromExcel } = require('./google-sheets');
+      const assignedNotes = getAssignedNotesFromExcel();
+      const allUsers = globalThis.__bandDatabase.users;
+      globalThis.__bandDatabase.tunes.forEach(tune => {
+        const tuneTitleLower = tune.title.toLowerCase().trim();
+        const tuneKeyLower = tune.key ? tune.key.toLowerCase().trim() : '';
+        const matchingUserIds: string[] = [];
+
+        assignedNotes.forEach((rec: any) => {
+          if (!rec.assignedTunes) return;
+          const assignedList = rec.assignedTunes
+            .split(',')
+            .map((s: string) => s.trim().toLowerCase());
+
+          if (assignedList.includes(tuneTitleLower) || (tuneKeyLower && assignedList.includes(tuneKeyLower))) {
+            const user = allUsers.find(
+              (u: any) =>
+                (rec.itsNumber && String(u.itsNumber).trim() === String(rec.itsNumber).trim()) ||
+                (rec.memberName && u.name.toLowerCase().trim() === rec.memberName.toLowerCase().trim())
+            );
+            if (user && !matchingUserIds.includes(user.id)) {
+              matchingUserIds.push(user.id);
+            }
+          }
+        });
+
+        tune.assignedUserIds = matchingUserIds;
+      });
+    } catch {
+      // Ignore
     }
   }
   return globalThis.__bandDatabase;

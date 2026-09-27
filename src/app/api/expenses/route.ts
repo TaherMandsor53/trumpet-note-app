@@ -8,6 +8,7 @@ import {
 import { getCurrentUser } from '@/lib/auth';
 import { canAccessLavajam } from '@/lib/rbac';
 import { syncExpenseToExcel, postExpenseToGoogleSheet, syncExpensesFromGoogleSheet } from '@/lib/google-sheets';
+import { ExpenseRecord } from '@/types/band';
 
 function formatDateToDDMMYYYY(dateStr?: string): string {
   if (!dateStr) {
@@ -64,7 +65,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { date: rawDate, expenseDetails, name, amount, category, notes } = body;
+    const { date: rawDate, expenseDetails, name, amount, category, notes, additionalNotes } = body;
 
     const detailsStr = (expenseDetails || name || '').trim();
     if (!detailsStr) {
@@ -73,20 +74,21 @@ export async function POST(req: NextRequest) {
 
     const formattedDate = formatDateToDDMMYYYY(rawDate);
     const amountNum = Number(amount) || 0;
+    const notesStr = (additionalNotes || notes || '').trim();
 
     const newExpense = addExpense({
       date: formattedDate,
       expenseDetails: detailsStr,
       amount: amountNum,
       category: category || 'Instruments',
-      notes,
+      notes: notesStr || undefined,
     });
 
     // 1. Sync to local Excel file (TAHERI_SCOUT_BAND_GROUP_1448H.xlsx -> Instrument Expenses sheet)
     syncExpenseToExcel(newExpense, 'add');
 
     // 2. Sync to live Google Sheet (Instrument Expenses sheet)
-    postExpenseToGoogleSheet(newExpense, 'add').catch(err => {
+    await postExpenseToGoogleSheet(newExpense, 'add').catch(err => {
       console.warn('Background sync to Google Sheet failed:', err);
     });
 
@@ -104,10 +106,14 @@ export async function PUT(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { id, originalDetails, ...updates } = body;
+    const { id, originalDetails, originalAmount, additionalNotes, ...updates } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Expense ID required' }, { status: 400 });
+    }
+
+    if (additionalNotes && !updates.notes) {
+      updates.notes = additionalNotes;
     }
 
     if (updates.date) {
@@ -120,22 +126,43 @@ export async function PUT(req: NextRequest) {
       updates.expenseDetails = updates.name;
     }
 
-    const updated = updateExpense(id, updates);
+    let updated = updateExpense(id, updates);
     if (!updated) {
-      return NextResponse.json({ error: 'Expense not found' }, { status: 404 });
+      const matchDetails = originalDetails || updates.expenseDetails || updates.name;
+      if (matchDetails) {
+        const found = getExpenses().find(e => {
+          const matchName = e.expenseDetails.trim().toLowerCase() === matchDetails.trim().toLowerCase();
+          if (originalAmount !== undefined) {
+            return matchName && Number(e.amount) === Number(originalAmount);
+          }
+          return matchName;
+        });
+        if (found) {
+          updated = updateExpense(found.id, updates);
+        }
+      }
     }
 
+    const finalExpense: ExpenseRecord = updated || {
+      id,
+      date: updates.date || formatDateToDDMMYYYY(),
+      expenseDetails: updates.expenseDetails || updates.name || originalDetails || 'Instrument Expense',
+      amount: Number(updates.amount) || 0,
+      category: updates.category || 'Instruments',
+      notes: updates.notes,
+    };
+
     // 1. Sync to local Excel
-    syncExpenseToExcel(updated, 'update', originalDetails);
+    syncExpenseToExcel(finalExpense, 'update', originalDetails, originalAmount);
 
     // 2. Sync to Google Sheets
-    postExpenseToGoogleSheet(updated, 'update', originalDetails).catch(err => {
+    await postExpenseToGoogleSheet(finalExpense, 'update', originalDetails, originalAmount).catch(err => {
       console.warn('Background sync to Google Sheet failed:', err);
     });
 
-    return NextResponse.json({ success: true, expense: updated });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to update expense' }, { status: 500 });
+    return NextResponse.json({ success: true, expense: finalExpense });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Failed to update expense' }, { status: 500 });
   }
 }
 
@@ -148,23 +175,50 @@ export async function DELETE(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
-    if (!id) return NextResponse.json({ error: 'Expense ID required' }, { status: 400 });
+    const detailsParam = searchParams.get('details') || searchParams.get('expenseDetails') || '';
+    const amountParam = searchParams.get('amount');
+    const targetAmt = amountParam ? Number(amountParam) : undefined;
 
-    const existing = getExpenses().find(e => e.id === id);
-    const deleted = deleteExpense(id);
-
-    if (deleted && existing) {
-      // 1. Sync to local Excel
-      syncExpenseToExcel(existing, 'delete');
-
-      // 2. Sync to Google Sheets
-      postExpenseToGoogleSheet(existing, 'delete').catch(err => {
-        console.warn('Background sync delete to Google Sheet failed:', err);
-      });
+    if (!id && !detailsParam) {
+      return NextResponse.json({ error: 'Expense ID or Details required' }, { status: 400 });
     }
 
-    return NextResponse.json({ success: deleted });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to delete expense' }, { status: 500 });
+    let existing = id ? getExpenses().find(e => e.id === id) : undefined;
+    if (!existing && detailsParam) {
+      if (targetAmt !== undefined && !isNaN(targetAmt)) {
+        existing = getExpenses().find(
+          e =>
+            e.expenseDetails.trim().toLowerCase() === detailsParam.trim().toLowerCase() &&
+            Number(e.amount) === targetAmt
+        );
+      }
+      if (!existing) {
+        existing = getExpenses().find(e => e.expenseDetails.trim().toLowerCase() === detailsParam.trim().toLowerCase());
+      }
+    }
+
+    const targetExpense: ExpenseRecord = existing || {
+      id: id || `exp-${Date.now()}`,
+      date: formatDateToDDMMYYYY(),
+      expenseDetails: detailsParam || '',
+      amount: targetAmt !== undefined ? targetAmt : 0,
+      category: 'Instruments',
+    };
+
+    if (existing) {
+      deleteExpense(existing.id);
+    }
+
+    // 1. Sync to local Excel
+    syncExpenseToExcel(targetExpense, 'delete', targetExpense.expenseDetails, targetExpense.amount);
+
+    // 2. Sync to Google Sheets
+    await postExpenseToGoogleSheet(targetExpense, 'delete', targetExpense.expenseDetails, targetExpense.amount).catch(err => {
+      console.warn('Background sync delete to Google Sheet failed:', err);
+    });
+
+    return NextResponse.json({ success: true, message: 'Expense deleted successfully' });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Failed to delete expense' }, { status: 500 });
   }
 }

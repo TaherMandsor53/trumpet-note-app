@@ -31,6 +31,7 @@ import { useSelector } from 'react-redux';
 import { RootState } from '@/store';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/components/ui/toast';
+import { Pagination } from '@/components/ui/pagination';
 import { isInstrumentMajor, isOverallMajor, getManagedSection } from '@/lib/rbac';
 import { cn } from '@/lib/utils';
 
@@ -261,6 +262,29 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
     );
     return matches.length > 0 ? matches : [currentUser];
   }, [isAuthorizedMajor, isSectionMajor, managedSection, currentUser, users, sectionFilter, searchQuery]);
+
+  // Pagination states (default 10 records per page)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [matrixPage, setMatrixPage] = useState(1);
+  const [matrixPageSize, setMatrixPageSize] = useState(10);
+
+  // Reset pagination to page 1 on filter or search changes
+  useEffect(() => {
+    setCurrentPage(1);
+    setMatrixPage(1);
+  }, [sectionFilter, searchQuery]);
+
+  // Paginated user slices
+  const paginatedUsers = React.useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredUsers.slice(start, start + pageSize);
+  }, [filteredUsers, currentPage, pageSize]);
+
+  const paginatedMatrixUsers = React.useMemo(() => {
+    const start = (matrixPage - 1) * matrixPageSize;
+    return filteredUsers.slice(start, start + matrixPageSize);
+  }, [filteredUsers, matrixPage, matrixPageSize]);
 
   // Count current selections
   const presentCount = filteredUsers.filter(u => statusMap[u.id]?.status === 'Present').length;
@@ -549,7 +573,7 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                   No members matching filter.
                 </div>
               ) : (
-                filteredUsers.map(u => {
+                paginatedUsers.map(u => {
                   const current = statusMap[u.id];
                   const isUnmarked = !current?.status;
 
@@ -694,7 +718,7 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                         </td>
                       </tr>
                     ) : (
-                      filteredUsers.map(u => {
+                      paginatedUsers.map(u => {
                         const current = statusMap[u.id];
                         const isUnmarked = !current?.status;
 
@@ -811,6 +835,18 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                 </table>
               </div>
             </div>
+
+            {/* Attendance Marking Pagination Controls */}
+            {filteredUsers.length > 0 && (
+              <Pagination
+                currentPage={currentPage}
+                totalItems={filteredUsers.length}
+                pageSize={pageSize}
+                pageSizeOptions={[10, 20, 50, 100]}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={setPageSize}
+              />
+            )}
           </CardContent>
 
           <CardFooter className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-border/60 pt-4 bg-muted/10">
@@ -901,7 +937,7 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
-                {filteredUsers.map(member => (
+                {paginatedMatrixUsers.map(member => (
                   <tr key={member.id} className="hover:bg-muted/25 transition-colors">
                     <td className="py-2.5 px-4 font-mono font-bold text-foreground uppercase tracking-tight">
                       {member.name}
@@ -943,6 +979,18 @@ export function AttendanceMarker({ onSuccess }: { onSuccess?: () => void }) {
               </tbody>
             </table>
           </div>
+
+          {/* Matrix Pagination Controls */}
+          {filteredUsers.length > 0 && (
+            <Pagination
+              currentPage={matrixPage}
+              totalItems={filteredUsers.length}
+              pageSize={matrixPageSize}
+              pageSizeOptions={[10, 20, 50, 100]}
+              onPageChange={setMatrixPage}
+              onPageSizeChange={setMatrixPageSize}
+            />
+          )}
         </CardContent>
       )}
     </Card>

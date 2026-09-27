@@ -1,21 +1,25 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import { RootState } from '@/store';
-import { isOverallMajor, isInstrumentMajor } from '@/lib/rbac';
+import { isOverallMajor, isInstrumentMajor, getManagedSection } from '@/lib/rbac';
 import {
   useGetReferenceLinksQuery,
   useAddReferenceLinkMutation,
   useUpdateReferenceLinkMutation,
   useDeleteReferenceLinkMutation,
+  useGetUsersQuery,
+  useGetAssignedNotesQuery,
+  useAssignNotesMutation,
 } from '@/store/api/bandApi';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Pagination } from '@/components/ui/pagination';
 import { useToast } from '@/components/ui/toast';
 import {
   Video,
@@ -26,7 +30,6 @@ import {
   FolderOpen,
   FileText,
   Image as ImageIcon,
-  CheckCircle2,
   Music,
   RefreshCw,
   Eye,
@@ -35,8 +38,15 @@ import {
   AlertTriangle,
   Maximize2,
   Download,
-  PlayCircle,
   Loader2,
+  Users,
+  Search,
+  Check,
+  CheckSquare,
+  Square,
+  Shield,
+  Filter,
+  Lock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -101,6 +111,14 @@ export interface DeleteConfirmState {
   instrumentType: string;
 }
 
+export interface AssignTuneState {
+  open: boolean;
+  tuneName: string;
+  instrumentType: string;
+  selectedMemberNames: string[];
+  searchQuery: string;
+}
+
 /**
  * Extracts standard 11-char YouTube ID and formats embed URL
  */
@@ -144,16 +162,82 @@ export function VideoShowcase() {
   const role = currentUser?.role || activeRole;
   const { toast } = useToast();
 
-  // Permission: Section Major and Major have authority to Add, Edit, and Delete Tune Notes
-  const canManageNotes = isOverallMajor(role) || isInstrumentMajor(role);
+  // Role permissions
+  const isMajor = isOverallMajor(role);
+  const managedSection = getManagedSection(role) || (role.endsWith('Major') ? currentUser?.section : null);
+  const isSectionMajor = Boolean(managedSection) || isInstrumentMajor(role);
+  const canManageNotes = isMajor || isSectionMajor;
 
-  // Dynamic Reference Links fetched from GET API call
+  // Data Queries
   const { data: refLinksData, refetch: refetchRefLinks, isFetching: isRefreshing } = useGetReferenceLinksQuery();
+  const { data: usersData } = useGetUsersQuery();
+  const { data: assignedNotesData, refetch: refetchAssignedNotes } = useGetAssignedNotesQuery();
+
+  // Mutations
   const [addReferenceLink, { isLoading: isUploading }] = useAddReferenceLinkMutation();
   const [updateReferenceLink, { isLoading: isUpdating }] = useUpdateReferenceLinkMutation();
   const [deleteReferenceLink, { isLoading: isDeleting }] = useDeleteReferenceLinkMutation();
+  const [assignNotes, { isLoading: isAssigning }] = useAssignNotesMutation();
 
-  const referenceLinks = refLinksData?.referenceLinks || [];
+  const allReferenceLinks = refLinksData?.referenceLinks || [];
+  const allUsers = usersData?.users || [];
+  const assignedRecords = assignedNotesData?.assignedNotes || [];
+  const userAssignedTunes = assignedNotesData?.userAssignedTunes || [];
+
+  // Filter state for Overall Major
+  const [sectionFilter, setSectionFilter] = useState<string>('All');
+
+  // Filtered Reference Links based on Instrument Type & Role
+  const filteredReferenceLinks = useMemo(() => {
+    // 1. Overall Major: Sees all tunes, can filter by section
+    if (isMajor) {
+      if (sectionFilter === 'All') return allReferenceLinks;
+      return allReferenceLinks.filter(item => {
+        const itemInst = (item.instrumentType || '').toLowerCase();
+        const filt = sectionFilter.toLowerCase();
+        if (filt.includes('sidedrum') || filt.includes('basedrum')) {
+          return itemInst.includes('sidedrum') || itemInst.includes('basedrum');
+        }
+        return itemInst === filt;
+      });
+    }
+
+    // 2. Section Major: ONLY sees tunes for their particular instrument section
+    if (isSectionMajor && managedSection) {
+      const secLower = managedSection.toLowerCase();
+      return allReferenceLinks.filter(item => {
+        const itemInst = (item.instrumentType || '').toLowerCase();
+        if (secLower.includes('sidedrum') || secLower.includes('basedrum')) {
+          return itemInst.includes('sidedrum') || itemInst.includes('basedrum');
+        }
+        return itemInst === secLower;
+      });
+    }
+
+    // 3. Regular Musician / Member: ONLY assigned tunes should be visible!
+    const myRecord = assignedRecords.find(
+      r =>
+        (currentUser?.name && r.memberName.toLowerCase().includes(currentUser.name.toLowerCase())) ||
+        (currentUser?.itsNumber && r.itsNumber === currentUser.itsNumber)
+    );
+    const myAssignedList = myRecord?.assignedTunes
+      ? myRecord.assignedTunes.split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean)
+      : userAssignedTunes.map((s: string) => s.toLowerCase());
+
+    return allReferenceLinks.filter(item =>
+      myAssignedList.includes(item.tuneName.toLowerCase())
+    );
+  }, [allReferenceLinks, isMajor, isSectionMajor, managedSection, sectionFilter, assignedRecords, userAssignedTunes, currentUser]);
+
+  // Pagination State (Default 10 records per page as requested)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Paginated Reference Links
+  const paginatedReferenceLinks = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    return filteredReferenceLinks.slice(startIndex, startIndex + pageSize);
+  }, [filteredReferenceLinks, currentPage, pageSize]);
 
   // Active video player state for pinned top video
   const [activeVideoTuneId, setActiveVideoTuneId] = useState<string | null>(null);
@@ -200,9 +284,20 @@ export function VideoShowcase() {
     instrumentType: '',
   });
 
+  // Modal State for Assigning Tune Notes
+  const [assignState, setAssignState] = useState<AssignTuneState>({
+    open: false,
+    tuneName: '',
+    instrumentType: 'Trumpet',
+    selectedMemberNames: [],
+    searchQuery: '',
+  });
+
   // Add Form State
   const [tuneName, setTuneName] = useState('');
-  const [instrumentType, setInstrumentType] = useState('Trumpet');
+  const [instrumentType, setInstrumentType] = useState<string>(
+    isSectionMajor && managedSection ? managedSection : 'Trumpet'
+  );
   const [youtubeLink, setYoutubeLink] = useState('');
   const [instagramLink, setInstagramLink] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -227,7 +322,7 @@ export function VideoShowcase() {
 
   // Find currently active tune for top video player (only if explicitly activated)
   const activeTune = activeVideoTuneId
-    ? referenceLinks.find(item => item.id === activeVideoTuneId)
+    ? filteredReferenceLinks.find(item => item.id === activeVideoTuneId)
     : null;
 
   const activeVideoId = activeTune ? extractYoutubeVideoId(activeTune.youtubeLink) : null;
@@ -264,7 +359,6 @@ export function VideoShowcase() {
 
     const embedUrl = getYoutubeEmbedUrl(item.youtubeLink, 1);
     if (!embedUrl) {
-      // If embed URL can't be parsed, open in new tab
       window.open(item.youtubeLink, '_blank');
       return;
     }
@@ -302,6 +396,127 @@ export function VideoShowcase() {
       tuneName: item.tuneName,
       instrumentType: item.instrumentType,
     });
+  };
+
+  // Calculate assigned member count for a tune
+  const getAssignedCountForTune = (tuneTitle: string) => {
+    if (!tuneTitle) return 0;
+    const lowerTitle = tuneTitle.toLowerCase().trim();
+    return assignedRecords.filter(r => {
+      if (!r.assignedTunes) return false;
+      const tunes = r.assignedTunes.split(',').map((s: string) => s.trim().toLowerCase());
+      return tunes.includes(lowerTitle);
+    }).length;
+  };
+
+  // Open Assign Modal: Populates eligible members for that specific instrument
+  const handleOpenAssign = (item: any) => {
+    const tuneTitleLower = item.tuneName.toLowerCase().trim();
+
+    // Determine members who already have this tune assigned
+    const preselected: string[] = [];
+    assignedRecords.forEach(r => {
+      if (!r.assignedTunes) return;
+      const tunes = r.assignedTunes.split(',').map((s: string) => s.trim().toLowerCase());
+      if (tunes.includes(tuneTitleLower)) {
+        preselected.push(r.memberName);
+      }
+    });
+
+    setAssignState({
+      open: true,
+      tuneName: item.tuneName,
+      instrumentType: item.instrumentType,
+      selectedMemberNames: preselected,
+      searchQuery: '',
+    });
+  };
+
+  // Eligible members for the instrument in Assign Modal
+  const eligibleSectionMembers = useMemo(() => {
+    if (!assignState.open) return [];
+    const inst = (assignState.instrumentType || '').toLowerCase();
+
+    return allUsers.filter(u => {
+      const uSec = (u.section || '').toLowerCase();
+      const uRole = (u.role || '').toLowerCase();
+      if (inst === 'trumpet') return uSec === 'trumpet' || uRole.includes('trumpet');
+      if (inst === 'saxophone') return uSec === 'saxophone' || uRole.includes('saxophone');
+      if (inst.includes('sidedrum') || inst.includes('basedrum')) {
+        return (
+          uSec.includes('sidedrum') ||
+          uSec.includes('basedrum') ||
+          uRole.includes('sidedrum') ||
+          uRole.includes('basedrum')
+        );
+      }
+      if (inst === 'trombone') return uSec === 'trombone' || uRole.includes('trombone');
+      if (inst === 'euphonium') return uSec === 'euphonium' || uRole.includes('euphonium');
+      if (inst === 'dish') return uSec === 'dish' || uRole.includes('dish');
+      return uSec === inst;
+    });
+  }, [assignState.open, assignState.instrumentType, allUsers]);
+
+  // Filtered members by search query in modal
+  const searchedMembers = useMemo(() => {
+    const q = assignState.searchQuery.toLowerCase().trim();
+    if (!q) return eligibleSectionMembers;
+    return eligibleSectionMembers.filter(
+      m => m.name.toLowerCase().includes(q) || (m.itsNumber && m.itsNumber.includes(q))
+    );
+  }, [eligibleSectionMembers, assignState.searchQuery]);
+
+  // Toggle member assignment selection
+  const handleToggleMember = (name: string) => {
+    setAssignState(prev => {
+      const exists = prev.selectedMemberNames.includes(name);
+      return {
+        ...prev,
+        selectedMemberNames: exists
+          ? prev.selectedMemberNames.filter(n => n !== name)
+          : [...prev.selectedMemberNames, name],
+      };
+    });
+  };
+
+  // Select all / Deselect all
+  const handleSelectAllMembers = () => {
+    const allNames = eligibleSectionMembers.map(m => m.name);
+    setAssignState(prev => ({
+      ...prev,
+      selectedMemberNames: prev.selectedMemberNames.length === allNames.length ? [] : allNames,
+    }));
+  };
+
+  // Submit Assign Form
+  const handleAssignSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!assignState.tuneName) return;
+
+    try {
+      const assignments = eligibleSectionMembers.map(m => ({
+        memberName: m.name,
+        itsNumber: m.itsNumber || '',
+        section: m.section || assignState.instrumentType,
+        assigned: assignState.selectedMemberNames.includes(m.name),
+      }));
+
+      await assignNotes({
+        tuneName: assignState.tuneName,
+        assignments,
+      }).unwrap();
+
+      toast.success(
+        'Tune Assigned Successfully',
+        `Score "${assignState.tuneName}" updated for ${assignState.selectedMemberNames.length} musicians in Assign Notes sheet.`
+      );
+
+      setAssignState(prev => ({ ...prev, open: false }));
+      refetchAssignedNotes();
+      refetchRefLinks();
+    } catch (err: any) {
+      toast.error('Assignment Failed', err?.data?.error || err?.message || 'Could not save assignments.');
+    }
   };
 
   // Submit Add
@@ -392,6 +607,24 @@ export function VideoShowcase() {
     }
   };
 
+  // Restrict access: Only Major and Section Majors can view / manage tune notes
+  if (!canManageNotes) {
+    return (
+      <div className="max-w-2xl mx-auto my-12 p-8 text-center bg-card rounded-2xl border border-border space-y-4 shadow-sm">
+        <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-500">
+          <Lock className="w-6 h-6" />
+        </div>
+        <h3 className="text-xl font-bold font-serif text-foreground">Access Restricted</h3>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+          The <strong>Manage Tune Notes</strong> module is exclusively accessible to Major and Section Majors.
+        </p>
+        <p className="text-xs text-muted-foreground/80">
+          Band members can access their assigned scores and practice sheets directly inside <strong>My Madeh Portal</strong>.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       {/* Top Header Row with Add Tune Notes Button & Refresh */}
@@ -410,7 +643,10 @@ export function VideoShowcase() {
 
         <div className="flex items-center gap-2 flex-wrap">
           <Button
-            onClick={() => refetchRefLinks()}
+            onClick={() => {
+              refetchRefLinks();
+              refetchAssignedNotes();
+            }}
             variant="outline"
             size="sm"
             disabled={isRefreshing}
@@ -420,7 +656,7 @@ export function VideoShowcase() {
             <span>Refresh</span>
           </Button>
 
-          {/* Option to Add Tune Notes: Exclusively for Major & Section Majors */}
+          {/* Option to Add Tune Notes: Major & Section Majors */}
           {canManageNotes && (
             <Button
               onClick={() => setIsAddModalOpen(true)}
@@ -435,7 +671,62 @@ export function VideoShowcase() {
         </div>
       </div>
 
-      {/* Main Video Player (Only rendered when a tune with a video is available) */}
+      {/* Role-Specific Filter & Scope Banner */}
+      <div className="flex items-center justify-between flex-wrap gap-2 p-3 rounded-xl bg-card border border-border/70 shadow-xs">
+        <div className="flex items-center gap-2 flex-wrap">
+          {isMajor ? (
+            /* Overall Major: Interactive Instrument Filter Tabs */
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs font-bold text-muted-foreground flex items-center gap-1 mr-1">
+                <Filter className="w-3.5 h-3.5 text-[#D97736]" /> Filter Instrument:
+              </span>
+              {['All', 'Trumpet', 'Saxophone', 'SideDrum/BaseDrum', 'Trombone', 'Euphonium'].map(inst => (
+                <button
+                  key={inst}
+                  type="button"
+                  onClick={() => setSectionFilter(inst)}
+                  className={cn(
+                    'px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer',
+                    sectionFilter === inst
+                      ? 'bg-[#D97736] text-white border-[#D97736] shadow-sm'
+                      : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted/80'
+                  )}
+                >
+                  {inst === 'SideDrum/BaseDrum' ? 'Side/Base Drum' : inst}
+                </button>
+              ))}
+            </div>
+          ) : isSectionMajor ? (
+            /* Section Major: Clear Indicator of their designated Instrument Section */
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs py-1 px-2.5 font-bold text-[#D97736] border-[#D97736]/40 bg-[#D97736]/10">
+                <Shield className="w-3.5 h-3.5 mr-1.5" />
+                Section Major View: {managedSection} Notes
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                Showing all scores and reference tunes for {managedSection} musicians.
+              </span>
+            </div>
+          ) : (
+            /* Regular Musician: Assigned Practice Notes Scope */
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs py-1 px-2.5 font-bold text-emerald-400 border-emerald-500/40 bg-emerald-500/10">
+                <Check className="w-3.5 h-3.5 mr-1" />
+                My Assigned Tunes
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                Displaying tune scores assigned to you by your Section Major.
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
+          <span>{filteredReferenceLinks.length} {filteredReferenceLinks.length === 1 ? 'Tune' : 'Tunes'} Visible</span>
+        </div>
+      </div>
+
+      {/* Main Video Player (Only rendered when a tune with a video is explicitly selected) */}
       {activeTune && activeVideoId ? (
         <Card className="border border-border/80 overflow-hidden shadow-lg bg-card">
           <div className="relative w-full aspect-video bg-black">
@@ -491,7 +782,7 @@ export function VideoShowcase() {
         </Card>
       ) : null}
 
-      {/* Dynamic Tune Notes Details List (GET API Call) */}
+      {/* Dynamic Tune Notes Details List */}
       <div className="space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
@@ -503,16 +794,20 @@ export function VideoShowcase() {
             </Badge>
           </div>
           <span className="text-xs text-muted-foreground font-mono">
-            {referenceLinks.length} {referenceLinks.length === 1 ? 'Record' : 'Records'}
+            {filteredReferenceLinks.length} {filteredReferenceLinks.length === 1 ? 'Record' : 'Records'}
           </span>
         </div>
 
-        {referenceLinks.length === 0 ? (
+        {filteredReferenceLinks.length === 0 ? (
           <Card className="border border-dashed border-border/80 p-8 text-center bg-card/40">
             <Music className="w-10 h-10 text-muted-foreground mx-auto mb-2 opacity-50" />
-            <h4 className="text-sm font-bold text-foreground">No Tune Notes Recorded Yet</h4>
+            <h4 className="text-sm font-bold text-foreground">
+              {!canManageNotes ? 'No Practice Tunes Assigned Yet' : 'No Tune Notes Found for this Section'}
+            </h4>
             <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
-              Major and Section Majors can add tune notes above. The file will route to your designated Instrument folder in Google Drive (Trumpet Notes, Saxophone Notes, etc.) and save to the Reference Link sheet.
+              {!canManageNotes
+                ? 'Your Section Major has not assigned any specific tune notes to your account yet. When assigned, they will appear here.'
+                : 'You can upload and add tune notes using the button above. The score file will save into your designated Google Drive folder.'}
             </p>
             {canManageNotes && (
               <Button
@@ -529,7 +824,7 @@ export function VideoShowcase() {
           /* Responsive Table */
           <div className="border border-border/80 rounded-xl overflow-hidden bg-card shadow-sm">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs min-w-[700px]">
+              <table className="w-full text-left text-xs min-w-[760px]">
                 <thead className="bg-muted/50 border-b border-border text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   <tr>
                     <th className="py-3 px-4">Notes Name</th>
@@ -542,10 +837,11 @@ export function VideoShowcase() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {referenceLinks.map((item, idx) => {
+                  {paginatedReferenceLinks.map((item, idx) => {
                     const isVideoSelected = activeTune?.id === item.id;
                     const hasYoutube = Boolean(item.youtubeLink && item.youtubeLink.trim());
                     const hasInstagram = Boolean(item.instagramLink && item.instagramLink.trim());
+                    const assignedCount = getAssignedCountForTune(item.tuneName);
 
                     return (
                       <tr
@@ -672,20 +968,41 @@ export function VideoShowcase() {
                           </div>
                         </td>
 
-                        {/* 7. Actions: Update & Delete for Leadership */}
+                        {/* 7. Actions: Assign, Edit, Delete for Section Major & Major */}
                         {canManageNotes && (
                           <td className="py-3 px-4 text-center">
-                            <div className="inline-flex items-center gap-1">
+                            <div className="inline-flex items-center gap-1.5">
+                              {/* Option to Assign: Opens modal to assign to section musicians */}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleOpenAssign(item)}
+                                title={`Assign ${item.tuneName} to Section Musicians`}
+                                className="h-7 px-2.5 gap-1.5 text-[11px] font-bold bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 cursor-pointer transition-all"
+                              >
+                                <Users className="w-3.5 h-3.5" />
+                                <span>Assign</span>
+                                {assignedCount > 0 && (
+                                  <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[9px] bg-blue-500/30 text-blue-200 font-mono font-bold">
+                                    {assignedCount}
+                                  </span>
+                                )}
+                              </Button>
+
+                              {/* Edit Button */}
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleOpenEdit(item)}
                                 title="Update / Edit Tune Notes"
-                                className="h-7 w-7 p-0 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 cursor-pointer"
+                                className="h-7 w-7 p-0 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 cursor-pointer"
                               >
                                 <Pencil className="w-3.5 h-3.5" />
                               </Button>
+
+                              {/* Delete Button */}
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -705,9 +1022,165 @@ export function VideoShowcase() {
                 </tbody>
               </table>
             </div>
+            {filteredReferenceLinks.length > 0 && (
+              <Pagination
+                currentPage={currentPage}
+                totalItems={filteredReferenceLinks.length}
+                pageSize={pageSize}
+                pageSizeOptions={[10, 20, 50, 100]}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={setPageSize}
+              />
+            )}
           </div>
         )}
       </div>
+
+      {/* ASSIGN TUNE MODAL: Section Major assigns tune to musicians of that specific instrument */}
+      <Dialog
+        open={assignState.open}
+        onOpenChange={open => setAssignState(prev => ({ ...prev, open }))}
+        contentClassName="max-w-xl"
+      >
+        <form onSubmit={handleAssignSubmit} className="space-y-4">
+          <DialogHeader>
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-500/40 bg-blue-500/10">
+                <Users className="w-3 h-3 mr-1" /> Repertoire Assignment
+              </Badge>
+              <Badge variant="outline" className="text-[10px] text-amber-400 border-amber-500/40">
+                {assignState.instrumentType} Section
+              </Badge>
+            </div>
+            <DialogTitle className="text-lg font-serif font-black text-foreground">
+              Assign Tune: {assignState.tuneName}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Assign this score to musicians in the <strong className="text-foreground">{assignState.instrumentType}</strong> section.
+              Records are synchronized to the <strong className="text-foreground font-mono">Assign Notes</strong> sheet in Excel.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Search & Bulk Select Controls */}
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="text"
+                placeholder="Search member name or ITS..."
+                value={assignState.searchQuery}
+                onChange={e => setAssignState(prev => ({ ...prev, searchQuery: e.target.value }))}
+                className="h-8 pl-8 text-xs bg-muted/30"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleSelectAllMembers}
+              className="text-xs h-8 px-2.5 gap-1 cursor-pointer shrink-0"
+            >
+              {assignState.selectedMemberNames.length === eligibleSectionMembers.length ? (
+                <>
+                  <Square className="w-3.5 h-3.5" /> <span>Deselect All</span>
+                </>
+              ) : (
+                <>
+                  <CheckSquare className="w-3.5 h-3.5 text-blue-400" /> <span>Select All</span>
+                </>
+              )}
+            </Button>
+          </div>
+
+          {/* Members List Box */}
+          <div className="border border-border/80 rounded-xl overflow-hidden bg-card/60 divide-y divide-border/60 max-h-[46vh] overflow-y-auto scrollbar-thin">
+            {searchedMembers.length === 0 ? (
+              <div className="p-6 text-center text-xs text-muted-foreground">
+                No {assignState.instrumentType} musicians found matching your query.
+              </div>
+            ) : (
+              searchedMembers.map(member => {
+                const isSelected = assignState.selectedMemberNames.includes(member.name);
+                return (
+                  <div
+                    key={member.id || member.itsNumber}
+                    onClick={() => handleToggleMember(member.name)}
+                    className={cn(
+                      'p-2.5 flex items-center justify-between gap-3 text-xs cursor-pointer transition-colors',
+                      isSelected ? 'bg-blue-500/10 hover:bg-blue-500/15' : 'hover:bg-muted/40'
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div
+                        className={cn(
+                          'w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0',
+                          isSelected
+                            ? 'bg-blue-600 border-blue-600 text-white'
+                            : 'border-border bg-background'
+                        )}
+                      >
+                        {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-foreground truncate">{member.name}</p>
+                        <p className="text-[10px] text-muted-foreground font-mono">
+                          ITS: {member.itsNumber || '—'} • {member.rank || member.role}
+                        </p>
+                      </div>
+                    </div>
+
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        'text-[10px] font-mono shrink-0',
+                        isSelected
+                          ? 'border-blue-500/50 text-blue-300 bg-blue-500/15'
+                          : 'border-border text-muted-foreground'
+                      )}
+                    >
+                      {isSelected ? 'Assigned' : 'Unassigned'}
+                    </Badge>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <DialogFooter className="flex items-center justify-between sm:justify-between pt-2 border-t border-border/60">
+            <span className="text-[11px] text-muted-foreground font-mono">
+              Selected: <strong className="text-foreground">{assignState.selectedMemberNames.length}</strong> of {eligibleSectionMembers.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setAssignState(prev => ({ ...prev, open: false }))}
+                disabled={isAssigning}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="havenly"
+                size="sm"
+                disabled={isAssigning}
+                className="gap-1.5 font-bold shadow-warm-glow cursor-pointer"
+              >
+                {isAssigning ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving Assignments...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" /> Save Assignments ({assignState.selectedMemberNames.length})
+                  </>
+                )}
+              </Button>
+            </div>
+          </DialogFooter>
+        </form>
+      </Dialog>
 
       {/* POPUP MODAL: Score File Viewer (NO auto download) */}
       <Dialog
@@ -1106,7 +1579,7 @@ export function VideoShowcase() {
               Add Tune Notes &amp; Reference Links
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              Upload your sheet notes into the designated instrument folder in Google Drive (Image 3) and synchronize with the Reference Link sheet.
+              Upload your sheet notes into the designated instrument folder in Google Drive and synchronize with the Reference Link sheet.
             </DialogDescription>
           </DialogHeader>
 
@@ -1143,7 +1616,7 @@ export function VideoShowcase() {
                 ))}
               </Select>
 
-              {/* Dynamic Target Drive Folder Indicator based on Image 3 */}
+              {/* Dynamic Target Drive Folder Indicator */}
               <div className="mt-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 flex items-center justify-between text-[11px]">
                 <span className="flex items-center gap-1.5">
                   <FolderOpen className="w-4 h-4 text-[#D97736]" /> Target Google Drive Folder:

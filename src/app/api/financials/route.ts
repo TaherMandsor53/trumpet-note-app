@@ -9,6 +9,7 @@ import {
 import { getCurrentUser } from '@/lib/auth';
 import { canAccessLavajam } from '@/lib/rbac';
 import { syncLavajamToExcel, postLavajamToGoogleSheet, syncLavajamFromGoogleSheet } from '@/lib/google-sheets';
+import { LavajamRecord } from '@/types/band';
 
 export async function GET(req: NextRequest) {
   try {
@@ -145,7 +146,7 @@ export async function POST(req: NextRequest) {
     syncLavajamToExcel(savedRecord, 'add', targetYear);
 
     // 2. Sync to live Google Sheet (Lavajam Details sheet)
-    postLavajamToGoogleSheet(savedRecord, 'add', targetYear).catch(err => {
+    await postLavajamToGoogleSheet(savedRecord, 'add', targetYear).catch(err => {
       console.warn('Background sync to Google Sheet failed:', err);
     });
 
@@ -185,22 +186,39 @@ export async function PUT(req: NextRequest) {
 
     updates.year = targetYear;
 
-    const updated = updateFinancialRecord(id, updates);
+    let updated = updateFinancialRecord(id, updates);
     if (!updated) {
-      return NextResponse.json({ error: 'Record not found' }, { status: 404 });
+      const matchName = originalName || updates.userName;
+      if (matchName) {
+        const found = getFinancials().find(f => f.userName.trim().toLowerCase() === matchName.trim().toLowerCase());
+        if (found) {
+          updated = updateFinancialRecord(found.id, updates);
+        }
+      }
     }
 
+    const finalRecord: LavajamRecord = updated || {
+      id,
+      userName: updates.userName || originalName || 'Band Member',
+      fundType: updates.fundType || 'Lavajam',
+      amount: Number(updates.amount) || 0,
+      year: targetYear,
+      status: (Number(updates.amount) || 0) > 0 ? 'Paid' : 'Unpaid',
+      paidAt: updates.paidAt,
+      receiptNo: updates.receiptNo,
+    };
+
     // 1. Sync to local Excel
-    syncLavajamToExcel(updated, 'update', targetYear, originalName);
+    syncLavajamToExcel(finalRecord, 'update', targetYear, originalName);
 
     // 2. Sync to Google Sheets
-    postLavajamToGoogleSheet(updated, 'update', targetYear, originalName).catch(err => {
+    await postLavajamToGoogleSheet(finalRecord, 'update', targetYear, originalName).catch(err => {
       console.warn('Background sync to Google Sheet failed:', err);
     });
 
-    return NextResponse.json({ success: true, record: updated });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to update record' }, { status: 500 });
+    return NextResponse.json({ success: true, record: finalRecord });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Failed to update record' }, { status: 500 });
   }
 }
 
@@ -214,36 +232,56 @@ export async function DELETE(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
     const targetYear = searchParams.get('year') || '2026';
-    if (!id) return NextResponse.json({ error: 'Record ID required' }, { status: 400 });
+    const nameParam = searchParams.get('name') || searchParams.get('userName') || '';
 
-    const existing = getFinancials().find(f => f.id === id);
+    if (!id && !nameParam) {
+      return NextResponse.json({ error: 'Record ID or Contributor Name required' }, { status: 400 });
+    }
+
+    let existing = id ? getFinancials().find(f => f.id === id) : undefined;
+    if (!existing && nameParam) {
+      existing = getFinancials().find(f => f.userName.trim().toLowerCase() === nameParam.trim().toLowerCase());
+    }
 
     if (existing) {
       const isHoob = (existing.fundType || '').toLowerCase().includes('hoob');
 
       if (isHoob) {
         // Delete Hoob contributor record
-        deleteFinancialRecord(id);
+        deleteFinancialRecord(existing.id);
         syncLavajamToExcel(existing, 'delete', targetYear);
-        postLavajamToGoogleSheet(existing, 'delete', targetYear).catch(err => {
+        await postLavajamToGoogleSheet(existing, 'delete', targetYear).catch(err => {
           console.warn('Background sync delete to Google Sheet failed:', err);
         });
       } else {
         // For Band Member: mark as Unpaid by clearing amount for target year
-        const updated = updateFinancialRecord(id, {
+        const updated = updateFinancialRecord(existing.id, {
           amount: 0,
           status: 'Unpaid',
           year: targetYear,
         });
         syncLavajamToExcel(updated || { ...existing, amount: 0, status: 'Unpaid' }, 'delete', targetYear);
-        postLavajamToGoogleSheet(updated || { ...existing, amount: 0, status: 'Unpaid' }, 'delete', targetYear).catch(err => {
+        await postLavajamToGoogleSheet(updated || { ...existing, amount: 0, status: 'Unpaid' }, 'delete', targetYear).catch(err => {
           console.warn('Background sync clear to Google Sheet failed:', err);
         });
       }
+    } else if (nameParam) {
+      const fallbackRecord: LavajamRecord = {
+        id: id || `lav-${Date.now()}`,
+        userName: nameParam,
+        fundType: 'Lavajam',
+        amount: 0,
+        year: targetYear,
+        status: 'Unpaid',
+      };
+      syncLavajamToExcel(fallbackRecord, 'delete', targetYear);
+      await postLavajamToGoogleSheet(fallbackRecord, 'delete', targetYear).catch(err => {
+        console.warn('Background sync clear to Google Sheet failed:', err);
+      });
     }
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to delete record' }, { status: 500 });
+    return NextResponse.json({ success: true, message: 'Contribution cleared or removed successfully' });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message || 'Failed to delete record' }, { status: 500 });
   }
 }

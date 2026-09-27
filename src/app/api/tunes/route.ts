@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getTunes, addTune } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { canAssignTunes, isOverallMajor, getManagedSection } from '@/lib/rbac';
+import { getAssignedTuneNamesForMember } from '@/lib/google-sheets';
 import { Tune, InstrumentSection } from '@/types/band';
 
 export async function GET(req: NextRequest) {
@@ -23,11 +24,19 @@ export async function GET(req: NextRequest) {
         const section = getManagedSection(user.role) || user.section;
         tunes = tunes.filter(t => t.section === section);
       } else {
-        // Band Member / Player: accesses notes assigned to them or unassigned section repertoire
+        // Band Member / Player: accesses ONLY notes assigned to them by Section Major
+        const memberAssignedTunes = user.name ? getAssignedTuneNamesForMember(user.name) : [];
+        const itsAssignedTunes = user.itsNumber ? getAssignedTuneNamesForMember(user.itsNumber) : [];
+        const assignedSet = new Set(
+          [...memberAssignedTunes, ...itsAssignedTunes].map(t => t.trim().toLowerCase())
+        );
+
         tunes = tunes.filter(
           t =>
             t.section === user.section &&
-            (t.assignedUserIds.length === 0 || t.assignedUserIds.includes(user.id))
+            (assignedSet.has(t.title.trim().toLowerCase()) ||
+              (t.key && assignedSet.has(t.key.trim().toLowerCase())) ||
+              (t.arabicName && assignedSet.has(t.arabicName.trim().toLowerCase())))
         );
       }
     } else {

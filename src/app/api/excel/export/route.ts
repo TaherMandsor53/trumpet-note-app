@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getFinancials, getAttendanceSessions, getUsers } from '@/lib/db';
+import { getFinancials, getExpenses, getAttendanceSessions, getUsers } from '@/lib/db';
 import { exportFinancialsToExcel, exportAttendanceToExcel } from '@/lib/excel-parser';
 import { getCurrentUser } from '@/lib/auth';
 import { canAccessFullFinancials, isInstrumentMajor, isOverallMajor, getManagedSection } from '@/lib/rbac';
@@ -17,12 +17,13 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Permission Denied' }, { status: 403 });
       }
       const records = getFinancials();
-      const buffer = exportFinancialsToExcel(records);
+      const expenses = getExpenses();
+      const buffer = exportFinancialsToExcel(records, expenses);
 
       return new NextResponse(buffer as any, {
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'Content-Disposition': `attachment; filename="Taheri_Scout_Band_Lavajam_${new Date().getFullYear()}.xlsx"`,
+          'Content-Disposition': `attachment; filename="Taheri_Scout_Band_Financials_${new Date().getFullYear()}.xlsx"`,
         },
       });
     } else if (type === 'attendance') {
