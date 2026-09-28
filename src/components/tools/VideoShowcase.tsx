@@ -71,10 +71,33 @@ function Instagram({ className }: { className?: string }) {
 const INSTRUMENT_OPTIONS = [
   { value: 'Trumpet', label: 'Trumpet', folder: 'Trumpet Notes' },
   { value: 'Saxophone', label: 'Saxophone', folder: 'Saxophone Notes' },
+  { value: 'Euphonium', label: 'Euphonium', folder: 'Euphonium Notes' },
   { value: 'SideDrum/BaseDrum', label: 'SideDrum / BaseDrum', folder: 'SideDrum Notes' },
   { value: 'Trombone', label: 'Trombone', folder: 'Trombone Notes' },
-  { value: 'Euphonium', label: 'Euphonium', folder: 'Euphonium Notes' },
 ];
+
+function getDriveFolderForInstrument(instrument?: string): string {
+  if (!instrument) return 'Trumpet Notes';
+  const clean = instrument.trim().toLowerCase();
+  if (clean === 'trumpet') return 'Trumpet Notes';
+  if (clean === 'saxophone') return 'Saxophone Notes';
+  if (clean === 'euphonium') return 'Euphonium Notes';
+  if (clean.includes('sidedrum') || clean.includes('basedrum')) return 'SideDrum Notes';
+  if (clean === 'trombone') return 'Trombone Notes';
+  if (clean === 'dish') return 'Dish Notes';
+  return `${instrument} Notes`;
+}
+
+function normalizeInstrumentValue(sec?: string | null): string {
+  if (!sec) return 'Trumpet';
+  const clean = sec.trim().toLowerCase();
+  if (clean === 'trumpet') return 'Trumpet';
+  if (clean === 'saxophone') return 'Saxophone';
+  if (clean === 'euphonium') return 'Euphonium';
+  if (clean.includes('sidedrum') || clean.includes('basedrum')) return 'SideDrum/BaseDrum';
+  if (clean === 'trombone') return 'Trombone';
+  return 'Trumpet';
+}
 
 export interface FilePopupState {
   open: boolean;
@@ -296,17 +319,19 @@ export function VideoShowcase() {
   // Add Form State
   const [tuneName, setTuneName] = useState('');
   const [instrumentType, setInstrumentType] = useState<string>(
-    isSectionMajor && managedSection ? managedSection : 'Trumpet'
+    isSectionMajor && managedSection ? normalizeInstrumentValue(managedSection) : 'Trumpet'
   );
   const [youtubeLink, setYoutubeLink] = useState('');
   const [instagramLink, setInstagramLink] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const currentFolder =
-    INSTRUMENT_OPTIONS.find(i => i.value === instrumentType)?.folder || `${instrumentType} Notes`;
+    INSTRUMENT_OPTIONS.find(i => i.value === instrumentType)?.folder ||
+    getDriveFolderForInstrument(instrumentType);
 
   const editCurrentFolder =
-    INSTRUMENT_OPTIONS.find(i => i.value === editState.instrumentType)?.folder || `${editState.instrumentType} Notes`;
+    INSTRUMENT_OPTIONS.find(i => i.value === editState.instrumentType)?.folder ||
+    getDriveFolderForInstrument(editState.instrumentType);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -531,6 +556,7 @@ export function VideoShowcase() {
       const formData = new FormData();
       formData.append('tuneName', tuneName.trim());
       formData.append('instrumentType', instrumentType);
+      formData.append('targetFolder', currentFolder);
       formData.append('youtubeLink', youtubeLink.trim());
       formData.append('instagramLink', instagramLink.trim());
       if (selectedFile) {
@@ -571,6 +597,7 @@ export function VideoShowcase() {
       formData.append('originalTuneName', editState.originalTuneName);
       formData.append('tuneName', editState.tuneName.trim());
       formData.append('instrumentType', editState.instrumentType);
+      formData.append('targetFolder', editCurrentFolder);
       formData.append('youtubeLink', editState.youtubeLink.trim());
       formData.append('instagramLink', editState.instagramLink.trim());
       if (editState.newFile) {
@@ -659,7 +686,12 @@ export function VideoShowcase() {
           {/* Option to Add Tune Notes: Major & Section Majors */}
           {canManageNotes && (
             <Button
-              onClick={() => setIsAddModalOpen(true)}
+              onClick={() => {
+                if (isSectionMajor && managedSection) {
+                  setInstrumentType(normalizeInstrumentValue(managedSection));
+                }
+                setIsAddModalOpen(true);
+              }}
               variant="havenly"
               size="sm"
               className="gap-2 text-xs font-bold shadow-warm-glow cursor-pointer h-9"

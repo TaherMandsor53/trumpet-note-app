@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { isOverallMajor, isInstrumentMajor } from '@/lib/rbac';
 import {
   INSTRUMENT_DRIVE_FOLDER_MAP,
+  getDriveFolderForInstrument,
   syncReferenceLinkToExcel,
   postReferenceLinkToGoogleSheet,
   getReferenceLinksFromSheet,
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData();
     const tuneName = (formData.get('tuneName') as string || '').trim();
     const instrumentType = (formData.get('instrumentType') as string || 'Trumpet').trim();
+    const targetFolderFromForm = (formData.get('targetFolder') as string || '').trim();
     const youtubeLink = (formData.get('youtubeLink') as string || '').trim();
     const instagramLink = (formData.get('instagramLink') as string || '').trim();
     const file = formData.get('file') as File | null;
@@ -68,8 +70,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Tune Name is required.' }, { status: 400 });
     }
 
-    // Determine target Google Drive folder from Image 3
-    const targetFolder = INSTRUMENT_DRIVE_FOLDER_MAP[instrumentType] || `${instrumentType} Notes`;
+    // Determine target Google Drive folder:
+    // Trumpet -> Trumpet Notes
+    // Saxophone -> Saxophone Notes
+    // Euphonium -> Euphonium Notes
+    // SideDrum/BaseDrum -> SideDrum Notes
+    // Trombone -> Trombone Notes
+    const targetFolder = targetFolderFromForm || getDriveFolderForInstrument(instrumentType);
     let fileName = `${tuneName.replace(/[^a-zA-Z0-9_\-\s]/g, '')}_Score.pdf`;
     let fileUrl = '/tunes/trumpet_notation_notes.pdf';
     let fileBase64 = '';
@@ -82,7 +89,7 @@ export async function POST(req: NextRequest) {
       const buffer = Buffer.from(bytes);
       fileBase64 = buffer.toString('base64');
 
-      // Save file locally to match Drive folder structure from Image 3
+      // Save file locally to match Drive folder structure from Image 2
       const targetDir = path.resolve(process.cwd(), 'public', 'uploads', 'tunes', targetFolder);
       if (!fs.existsSync(targetDir)) {
         fs.mkdirSync(targetDir, { recursive: true });
@@ -132,7 +139,7 @@ export async function POST(req: NextRequest) {
       title: tuneName,
       section: bandSection,
       key: tuneName.toLowerCase().replace(/[^a-z0-9]/g, '_'),
-      pdfUrl: fileUrl,
+      pdfUrl: record.fileUrl || fileUrl,
       audioUrl: youtubeLink || undefined,
       difficulty: 'Intermediate',
       tempo: '112 BPM',
@@ -176,6 +183,7 @@ export async function PUT(req: NextRequest) {
     let originalTuneName = '';
     let tuneName = '';
     let instrumentType = 'Trumpet';
+    let targetFolderFromForm = '';
     let youtubeLink = '';
     let instagramLink = '';
     let file: File | null = null;
@@ -185,6 +193,7 @@ export async function PUT(req: NextRequest) {
       originalTuneName = (formData.get('originalTuneName') as string || formData.get('tuneName') as string || '').trim();
       tuneName = (formData.get('tuneName') as string || '').trim();
       instrumentType = (formData.get('instrumentType') as string || 'Trumpet').trim();
+      targetFolderFromForm = (formData.get('targetFolder') as string || '').trim();
       youtubeLink = (formData.get('youtubeLink') as string || '').trim();
       instagramLink = (formData.get('instagramLink') as string || '').trim();
       file = formData.get('file') as File | null;
@@ -193,6 +202,7 @@ export async function PUT(req: NextRequest) {
       originalTuneName = (body.originalTuneName || body.tuneName || '').trim();
       tuneName = (body.tuneName || '').trim();
       instrumentType = (body.instrumentType || 'Trumpet').trim();
+      targetFolderFromForm = (body.targetFolder || '').trim();
       youtubeLink = (body.youtubeLink || '').trim();
       instagramLink = (body.instagramLink || '').trim();
     }
@@ -201,7 +211,7 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Original Tune Name is required for update.' }, { status: 400 });
     }
 
-    const targetFolder = INSTRUMENT_DRIVE_FOLDER_MAP[instrumentType] || `${instrumentType} Notes`;
+    const targetFolder = targetFolderFromForm || getDriveFolderForInstrument(instrumentType);
     const updates: Partial<ReferenceLinkRecord> = {
       tuneName: tuneName || originalTuneName,
       instrumentType,

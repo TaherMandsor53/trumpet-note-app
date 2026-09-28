@@ -1784,6 +1784,21 @@ export const INSTRUMENT_DRIVE_FOLDER_MAP: Record<string, string> = {
 };
 
 /**
+ * Returns the exact Google Drive folder name for a given instrument type
+ */
+export function getDriveFolderForInstrument(instrument?: string): string {
+  if (!instrument) return 'Trumpet Notes';
+  const clean = instrument.trim().toLowerCase();
+  if (clean === 'trumpet') return 'Trumpet Notes';
+  if (clean === 'saxophone') return 'Saxophone Notes';
+  if (clean === 'euphonium') return 'Euphonium Notes';
+  if (clean.includes('sidedrum') || clean.includes('basedrum')) return 'SideDrum Notes';
+  if (clean === 'trombone') return 'Trombone Notes';
+  if (clean === 'dish') return 'Dish Notes';
+  return INSTRUMENT_DRIVE_FOLDER_MAP[instrument] || `${instrument} Notes`;
+}
+
+/**
  * Synchronizes Reference Link entry to local Excel file (TAHERI_SCOUT_BAND_GROUP_1448H.xlsx -> Reference Link sheet)
  */
 export function syncReferenceLinkToExcel(record: ReferenceLinkRecord): void {
@@ -1904,12 +1919,13 @@ export async function postReferenceLinkToGoogleSheet(
     return { success: false, message: 'Google Apps Script URL not configured.' };
   }
   try {
+    const resolvedFolder = record.targetFolder || getDriveFolderForInstrument(record.instrumentType);
     const payload = {
       action: 'addReferenceLink',
       sheetName: 'Reference Link',
       tuneName: record.tuneName,
       instrumentType: record.instrumentType,
-      targetFolder: record.targetFolder,
+      targetFolder: resolvedFolder,
       fileName: record.fileName,
       fileUrl: record.fileUrl,
       youtubeLink: record.youtubeLink || '',
@@ -1921,7 +1937,7 @@ export async function postReferenceLinkToGoogleSheet(
       record: {
         tuneName: record.tuneName,
         instrumentType: record.instrumentType,
-        targetFolder: record.targetFolder,
+        targetFolder: resolvedFolder,
         fileName: record.fileName,
         fileUrl: record.fileUrl,
         youtubeLink: record.youtubeLink || '',

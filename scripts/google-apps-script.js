@@ -880,7 +880,17 @@ function doPost(e) {
       var record = body.record || body;
       var tuneName = record.tuneName || "";
       var instrumentType = record.instrumentType || "Trumpet";
-      var targetFolder = record.targetFolder || (instrumentType ? instrumentType + " Notes" : "Trumpet Notes");
+      var targetFolder = record.targetFolder;
+      if (!targetFolder) {
+        var instLower = (instrumentType || "").toLowerCase().trim();
+        if (instLower === "trumpet") targetFolder = "Trumpet Notes";
+        else if (instLower === "saxophone") targetFolder = "Saxophone Notes";
+        else if (instLower === "euphonium") targetFolder = "Euphonium Notes";
+        else if (instLower.indexOf("sidedrum") !== -1 || instLower.indexOf("basedrum") !== -1) targetFolder = "SideDrum Notes";
+        else if (instLower === "trombone") targetFolder = "Trombone Notes";
+        else if (instLower === "dish") targetFolder = "Dish Notes";
+        else targetFolder = instrumentType ? instrumentType + " Notes" : "Trumpet Notes";
+      }
       var fileName = record.fileName || (tuneName + "_Score.pdf");
       var fileUrl = record.fileUrl || "";
       var youtubeLink = record.youtubeLink || "";
