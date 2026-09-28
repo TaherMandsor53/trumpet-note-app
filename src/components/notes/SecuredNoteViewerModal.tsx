@@ -64,10 +64,50 @@ export function SecuredNoteViewerModal({
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Format preview URL: convert Google Drive links to /preview and append #toolbar=0
+  // Device detection: Only block screenshots on mobile and tablet view
+  const [isMobileOrTablet, setIsMobileOrTablet] = useState(false);
+  const isMobileOrTabletRef = useRef(false);
+
+  useEffect(() => {
+    const checkIsMobileOrTablet = () => {
+      if (typeof window === 'undefined') return false;
+      const isTouch = 'ontouchstart' in window || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
+      const isSmallScreen = window.innerWidth <= 1024;
+      const isMobileUA =
+        typeof navigator !== 'undefined' &&
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent);
+      return Boolean(isMobileUA || (isTouch && isSmallScreen) || isSmallScreen);
+    };
+
+    const detected = checkIsMobileOrTablet();
+    setIsMobileOrTablet(detected);
+    isMobileOrTabletRef.current = detected;
+
+    const handleResize = () => {
+      const res = checkIsMobileOrTablet();
+      setIsMobileOrTablet(res);
+      isMobileOrTabletRef.current = res;
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Format preview URL: convert Google Drive links to /preview, encode spaces, and append #toolbar=0
   const formatSecurePreviewUrl = useCallback((url: string): string => {
     if (!url) return '';
     let clean = url.trim();
+
+    // Ensure leading slash for local relative paths
+    if (
+      !clean.startsWith('http://') &&
+      !clean.startsWith('https://') &&
+      !clean.startsWith('/') &&
+      !clean.startsWith('blob:') &&
+      !clean.startsWith('data:')
+    ) {
+      clean = '/' + clean;
+    }
 
     // Google Drive URL transformation
     if (clean.includes('drive.google.com')) {
@@ -79,9 +119,17 @@ export function SecuredNoteViewerModal({
 
     // Direct PDF URL: hide toolbar, navpanes, scrollbar
     if (clean.toLowerCase().includes('.pdf')) {
-      if (!clean.includes('#')) {
-        return `${clean}#toolbar=0&navpanes=0&scrollbar=0`;
+      const [basePath] = clean.split('#');
+      let safePath = basePath;
+      if (safePath.includes(' ') && !safePath.includes('%20')) {
+        safePath = encodeURI(safePath);
       }
+      return `${safePath}#toolbar=0&navpanes=0&scrollbar=0`;
+    }
+
+    // Encode spaces for other file URLs
+    if (clean.includes(' ') && !clean.includes('%20')) {
+      clean = encodeURI(clean);
     }
 
     return clean;
@@ -113,24 +161,27 @@ export function SecuredNoteViewerModal({
       return;
     }
 
-    // Layer 1: Phone App Switcher & Backgrounding Detection (fires on mobile screenshot gesture or app switch)
+    // Layer 1: Phone App Switcher & Backgrounding Detection (ONLY on mobile & tablet view)
     const handleVisibilityChange = () => {
+      if (!isMobileOrTabletRef.current) return;
       if (document.hidden || document.visibilityState === 'hidden') {
-        triggerSecurityAlert('Phone app-switcher, notification shade, or screenshot gesture detected.');
+        triggerSecurityAlert('Mobile/Tablet app-switcher, notification shade, or screenshot gesture detected.');
       }
     };
 
-    // Layer 2: Window Focus Loss (Triggered on Android/iOS when screenshotting or notification shade pulled)
+    // Layer 2: Window Focus Loss (ONLY on mobile & tablet view when screenshotting or notification shade pulled)
     const handleWindowBlur = () => {
-      triggerSecurityAlert('Viewing paused: Window lost focus or screen capture was initiated.');
+      if (!isMobileOrTabletRef.current) return;
+      triggerSecurityAlert('Viewing paused: Mobile/Tablet screen capture or app-switch was initiated.');
     };
 
-    // Layer 3: Page Hide
+    // Layer 3: Page Hide (ONLY on mobile & tablet view)
     const handlePageHide = () => {
-      triggerSecurityAlert('Screen backgrounded.');
+      if (!isMobileOrTabletRef.current) return;
+      triggerSecurityAlert('Mobile/Tablet screen backgrounded.');
     };
 
-    // Layer 4: Keyboard Screenshot Shortcut Interception
+    // Layer 4: Keyboard Screenshot Shortcut Interception (Active across all devices)
     const handleKeyDown = (e: KeyboardEvent) => {
       // PrintScreen key
       if (e.key === 'PrintScreen' || e.keyCode === 44) {
@@ -290,7 +341,7 @@ export function SecuredNoteViewerModal({
                   View-Only
                 </Badge>
                 <Badge variant="outline" className="text-[10px] py-0 px-2 font-mono text-red-400 border-red-500/40 bg-red-500/10">
-                  No Screenshots
+                  {isMobileOrTablet ? 'Mobile/Tablet Anti-Screenshot' : 'Non-Downloadable'}
                 </Badge>
               </div>
               <p className="text-[10px] text-muted-foreground truncate font-mono mt-0.5">
@@ -315,7 +366,7 @@ export function SecuredNoteViewerModal({
                   ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                   : 'border-amber-500/40 text-amber-500 hover:bg-amber-500/10'
               }`}
-              title="Toggle Phone Touch-to-Reveal Shutter for maximum screenshot protection"
+              title="Toggle Mobile/Tablet Touch-to-Reveal Shutter for maximum screenshot protection"
             >
               <Smartphone className="w-3.5 h-3.5" />
               <span className="hidden md:inline font-semibold">
@@ -375,7 +426,7 @@ export function SecuredNoteViewerModal({
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
             <span className="font-semibold text-amber-200">Confidential Score Guard:</span>
             <span className="truncate">
-              Direct downloads, print, and phone screenshots are restricted. Dynamic watermark applied.
+              Direct downloads, print, and mobile/tablet screenshots are restricted. Dynamic watermark applied.
             </span>
           </div>
           <span className="font-mono text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
@@ -388,7 +439,7 @@ export function SecuredNoteViewerModal({
           className="relative flex-1 bg-zinc-950/95 overflow-hidden flex items-center justify-center"
           onContextMenu={(e) => e.preventDefault()}
         >
-          {/* Blackout Shield (When screen lost focus, app switch occurred, or screenshot attempted) */}
+          {/* Blackout Shield (When screen lost focus, app switch occurred, or screenshot attempted on mobile/tablet) */}
           {isScreenProtected && (
             <div className="absolute inset-0 z-50 bg-black/98 backdrop-blur-2xl flex flex-col items-center justify-center p-6 text-center select-none animate-in fade-in duration-150">
               <div className="w-16 h-16 rounded-full bg-red-500/20 border-2 border-red-500/40 flex items-center justify-center mb-4 shadow-lg shadow-red-500/10 animate-pulse">
@@ -398,7 +449,7 @@ export function SecuredNoteViewerModal({
                 🔒 Viewing Shield Active
               </h3>
               <p className="text-xs text-muted-foreground max-w-md mb-2">
-                {protectionReason || 'Document viewing was paused because the phone screen lost focus, an app-switch was detected, or a screenshot shortcut was intercepted.'}
+                {protectionReason || 'Document viewing was paused because a screen capture, screenshot gesture, or app-switch was detected on your mobile/tablet device.'}
               </p>
               <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 px-3.5 py-2 rounded-xl text-xs font-mono mb-6 max-w-sm">
                 Member: <span className="font-bold text-foreground">{member?.name || 'Band Musician'}</span>
@@ -493,13 +544,19 @@ export function SecuredNoteViewerModal({
               </div>
             ) : (
               <div className="relative w-full h-full flex flex-col">
-                <iframe
-                  src={previewUrl}
-                  title={tune.title}
-                  sandbox="allow-scripts allow-same-origin allow-forms"
+                <object
+                  data={previewUrl}
+                  type="application/pdf"
                   className="w-full h-full rounded-lg border-0 bg-white"
                   onContextMenu={(e) => e.preventDefault()}
-                />
+                >
+                  <iframe
+                    src={previewUrl}
+                    title={tune.title}
+                    className="w-full h-full rounded-lg border-0 bg-white"
+                    onContextMenu={(e) => e.preventDefault()}
+                  />
+                </object>
               </div>
             )}
           </div>
