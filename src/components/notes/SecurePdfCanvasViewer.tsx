@@ -473,7 +473,11 @@ export function SecurePdfCanvasViewer({
           <div className="relative max-h-full max-w-full overflow-auto flex items-center justify-center p-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={fileUrl}
+              src={
+                fileUrl.startsWith('data:')
+                  ? fileUrl
+                  : `/api/tunes/pdf-stream?url=${encodeURIComponent(fileUrl)}`
+              }
               alt={fileName || 'Tune Score'}
               draggable={false}
               onContextMenu={(e) => e.preventDefault()}

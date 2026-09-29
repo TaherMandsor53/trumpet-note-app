@@ -30,6 +30,7 @@ interface SecuredNoteViewerModalProps {
     title: string;
     section?: string;
     pdfUrl: string;
+    fileName?: string;
     audioUrl?: string;
     difficulty?: string;
     tempo?: string;
@@ -300,7 +301,10 @@ export function SecuredNoteViewerModal({
   if (!isOpen || !tune) return null;
 
   const previewUrl = formatSecurePreviewUrl(tune.pdfUrl);
-  const isImageFile = /\.(jpg|jpeg|png|webp|avif)$/i.test(tune.pdfUrl.split('?')[0]);
+  const isImageFile =
+    /\.(jpg|jpeg|png|webp|avif)$/i.test(tune.pdfUrl.split('?')[0]) ||
+    /\.(jpg|jpeg|png|webp|avif)$/i.test(tune.fileName || '') ||
+    tune.pdfUrl.startsWith('data:image');
   const formattedTimestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
 
   return (

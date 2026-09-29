@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,16 +14,52 @@ export async function GET(req: NextRequest) {
 
     let clean = rawUrl.trim();
 
-    // 1. Local files in public/uploads or public/tunes
-    if (clean.startsWith('/') || !clean.startsWith('http')) {
+    // 0. Base64 Data URLs (inline score images or PDFs)
+    if (clean.startsWith('data:')) {
+      const commaIdx = clean.indexOf(',');
+      if (commaIdx !== -1) {
+        const meta = clean.slice(0, commaIdx);
+        const base64Data = clean.slice(commaIdx + 1);
+        const mimeMatch = meta.match(/data:([^;]+)/);
+        const contentType = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+        const fileBuffer = Buffer.from(base64Data, 'base64');
+        return new NextResponse(fileBuffer, {
+          status: 200,
+          headers: {
+            'Content-Type': contentType,
+            'Content-Disposition': 'inline',
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        });
+      }
+    }
+
+    // 1. Local files in public/uploads, public/tunes, or /tmp/uploads
+    if (clean.startsWith('/') || (!clean.startsWith('http://') && !clean.startsWith('https://'))) {
       const normalized = clean.startsWith('/') ? clean.slice(1) : clean;
       const [relativePath] = normalized.split('#')[0].split('?');
       const safePath = path.normalize(decodeURIComponent(relativePath)).replace(/^(\.\.(\/|\\|$))+/, '');
+
+      // Check standard public directory
       const fullPath = path.join(process.cwd(), 'public', safePath);
 
+      // Check /tmp directory for serverless environments (e.g. Vercel)
+      const tmpPathDirect = path.join(os.tmpdir(), safePath);
+      const tmpPathCleaned = path.join(os.tmpdir(), safePath.replace(/^tmp[\/\\]/, ''));
+
+      let resolvedFile = '';
       if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
-        const fileBuffer = await fs.promises.readFile(fullPath);
-        const ext = path.extname(fullPath).toLowerCase();
+        resolvedFile = fullPath;
+      } else if (fs.existsSync(tmpPathCleaned) && fs.statSync(tmpPathCleaned).isFile()) {
+        resolvedFile = tmpPathCleaned;
+      } else if (fs.existsSync(tmpPathDirect) && fs.statSync(tmpPathDirect).isFile()) {
+        resolvedFile = tmpPathDirect;
+      }
+
+      if (resolvedFile) {
+        const fileBuffer = await fs.promises.readFile(resolvedFile);
+        const ext = path.extname(resolvedFile).toLowerCase();
         const contentType =
           ext === '.pdf'
             ? 'application/pdf'
@@ -63,26 +100,37 @@ export async function GET(req: NextRequest) {
 
           if (driveRes.ok) {
             const contentType = driveRes.headers.get('content-type') || '';
-            // If Google Drive returns the PDF directly
-            if (contentType.includes('pdf') || contentType.includes('octet-stream')) {
+            // If Google Drive returns the PDF directly or image or octet-stream
+            if (
+              contentType.includes('pdf') ||
+              contentType.includes('image') ||
+              contentType.includes('octet-stream')
+            ) {
               const arrayBuf = await driveRes.arrayBuffer();
+              const responseType = contentType.includes('image')
+                ? contentType
+                : contentType.includes('pdf')
+                ? 'application/pdf'
+                : 'application/octet-stream';
+
               return new NextResponse(Buffer.from(arrayBuf), {
                 status: 200,
                 headers: {
-                  'Content-Type': 'application/pdf',
+                  'Content-Type': responseType,
                   'Content-Disposition': 'inline',
                   'Cache-Control': 'no-store, no-cache, must-revalidate',
+                  'X-Content-Type-Options': 'nosniff',
                 },
               });
             }
           }
         } catch {
-          // If direct Google Drive fetch fails, return redirect to preview
+          // If direct Google Drive fetch fails
         }
       }
     }
 
-    // 3. Fallback for remote HTTP URL if direct PDF
+    // 3. Fallback for remote HTTP URL if direct PDF or image
     if (clean.startsWith('http://') || clean.startsWith('https://')) {
       try {
         const extRes = await fetch(clean);
@@ -95,6 +143,7 @@ export async function GET(req: NextRequest) {
               'Content-Type': contentType,
               'Content-Disposition': 'inline',
               'Cache-Control': 'no-store',
+              'X-Content-Type-Options': 'nosniff',
             },
           });
         }

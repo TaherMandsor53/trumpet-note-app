@@ -129,6 +129,7 @@ export interface Tune {
   section: InstrumentSection;
   key: string;
   pdfUrl: string;
+  fileName?: string;
   audioUrl?: string;
   driveFileId?: string;
   createdAt: string; // ISO date string

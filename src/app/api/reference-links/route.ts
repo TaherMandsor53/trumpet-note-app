@@ -18,6 +18,7 @@ import { addTune, updateTuneByName, deleteTuneByName } from '@/lib/db';
 import { InstrumentSection } from '@/types/band';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -90,18 +91,40 @@ export async function POST(req: NextRequest) {
       const buffer = Buffer.from(bytes);
       fileBase64 = buffer.toString('base64');
 
-      // Save file locally to match Drive folder structure from Image 2
-      const targetDir = path.resolve(process.cwd(), 'public', 'uploads', 'tunes', targetFolder);
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
-      }
-
       // Safe clean filename
       const safeFilename = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')}`;
-      const filePath = path.join(targetDir, safeFilename);
-      fs.writeFileSync(filePath, buffer);
-
       fileUrl = `/uploads/tunes/${encodeURIComponent(targetFolder)}/${safeFilename}`;
+
+      // 1. Try writing locally to public/uploads (local development / persistent server)
+      let writtenLocally = false;
+      try {
+        const targetDir = path.resolve(process.cwd(), 'public', 'uploads', 'tunes', targetFolder);
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+        const filePath = path.join(targetDir, safeFilename);
+        fs.writeFileSync(filePath, buffer);
+        writtenLocally = true;
+      } catch (fsErr: any) {
+        // Expected on serverless hosting (e.g., Vercel /var/task is read-only)
+        console.warn('public/uploads is read-only on serverless environment:', fsErr?.message);
+      }
+
+      // 2. If public/uploads is read-only, write to writable /tmp directory
+      if (!writtenLocally) {
+        try {
+          const tmpDir = path.join(os.tmpdir(), 'uploads', 'tunes', targetFolder);
+          if (!fs.existsSync(tmpDir)) {
+            fs.mkdirSync(tmpDir, { recursive: true });
+          }
+          const tmpFilePath = path.join(tmpDir, safeFilename);
+          fs.writeFileSync(tmpFilePath, buffer);
+          fileUrl = `/tmp/uploads/tunes/${encodeURIComponent(targetFolder)}/${safeFilename}`;
+          writtenLocally = true;
+        } catch (tmpErr: any) {
+          console.warn('Failed to write to /tmp temporary directory:', tmpErr?.message);
+        }
+      }
     }
 
     const timestamp = new Date().toISOString();
@@ -118,7 +141,7 @@ export async function POST(req: NextRequest) {
       createdAt: timestamp,
     };
 
-    // 1. Post to Google Sheet Web App & Google Drive folder
+    // 1. Post to Google Sheet Web App & Google Drive folder (Google Drive is persistent store)
     const sheetSync = await postReferenceLinkToGoogleSheet(record, fileBase64, mimeType).catch((err) => ({
       success: false,
       message: err?.message || 'Logged locally',
@@ -129,7 +152,7 @@ export async function POST(req: NextRequest) {
       record.fileUrl = sheetSync.driveFileUrl;
     }
 
-    // 2. Sync to local Excel 'Reference Link' sheet
+    // 2. Sync to local Excel 'Reference Link' sheet (if filesystem allows)
     syncReferenceLinkToExcel(record);
 
     // 3. Map instrument to band InstrumentSection
@@ -141,6 +164,7 @@ export async function POST(req: NextRequest) {
       section: bandSection,
       key: tuneName.toLowerCase().replace(/[^a-z0-9]/g, '_'),
       pdfUrl: record.fileUrl || fileUrl,
+      fileName: fileName,
       audioUrl: youtubeLink || undefined,
       difficulty: 'Intermediate',
       tempo: '112 BPM',
@@ -225,15 +249,36 @@ export async function PUT(req: NextRequest) {
       const fileName = file.name;
       const bytes = await file.arrayBuffer();
       const buffer = Buffer.from(bytes);
-      const targetDir = path.resolve(process.cwd(), 'public', 'uploads', 'tunes', targetFolder);
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
-      }
       const safeFilename = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_')}`;
-      const filePath = path.join(targetDir, safeFilename);
-      fs.writeFileSync(filePath, buffer);
       updates.fileName = fileName;
       updates.fileUrl = `/uploads/tunes/${encodeURIComponent(targetFolder)}/${safeFilename}`;
+
+      let writtenLocally = false;
+      try {
+        const targetDir = path.resolve(process.cwd(), 'public', 'uploads', 'tunes', targetFolder);
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+        const filePath = path.join(targetDir, safeFilename);
+        fs.writeFileSync(filePath, buffer);
+        writtenLocally = true;
+      } catch (err: any) {
+        console.warn('public/uploads is read-only during update on serverless environment:', err?.message);
+      }
+
+      if (!writtenLocally) {
+        try {
+          const tmpDir = path.join(os.tmpdir(), 'uploads', 'tunes', targetFolder);
+          if (!fs.existsSync(tmpDir)) {
+            fs.mkdirSync(tmpDir, { recursive: true });
+          }
+          const tmpFilePath = path.join(tmpDir, safeFilename);
+          fs.writeFileSync(tmpFilePath, buffer);
+          updates.fileUrl = `/tmp/uploads/tunes/${encodeURIComponent(targetFolder)}/${safeFilename}`;
+        } catch (tmpErr: any) {
+          console.warn('Failed to write update to /tmp:', tmpErr?.message);
+        }
+      }
     }
 
     // Update in Excel
@@ -248,6 +293,7 @@ export async function PUT(req: NextRequest) {
       title: updates.tuneName,
       section: bandSection,
     };
+    if (updates.fileName) tuneUpdates.fileName = updates.fileName;
     if (updates.fileUrl) tuneUpdates.pdfUrl = updates.fileUrl;
     if (updates.youtubeLink !== undefined) tuneUpdates.audioUrl = updates.youtubeLink;
     updateTuneByName(originalTuneName, tuneUpdates);
