@@ -23,6 +23,7 @@ import { formatDate, getDaysRemainingForNewBadge, cn } from '@/lib/utils';
 import { AttendanceMarker } from '@/components/attendance/AttendanceMarker';
 import { AttendanceReports } from '@/components/attendance/AttendanceReports';
 import { MemberModal } from '@/components/members/MemberModal';
+import { SecuredNoteViewerModal } from '@/components/notes/SecuredNoteViewerModal';
 import { useToast } from '@/components/ui/toast';
 import {
   Users,
@@ -86,6 +87,7 @@ export function SectionWorkspace({ initialSection }: SectionWorkspaceProps = {})
 
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [activeSectionTab, setActiveSectionTab] = useState<'repertoire' | 'attendance'>('repertoire');
+  const [selectedTuneForViewer, setSelectedTuneForViewer] = useState<Tune | null>(null);
 
   // Exclude executive commanders / Majors who don't play as section instrument players
   const isExecutiveCommander = (u: User) => {
@@ -436,15 +438,14 @@ export function SectionWorkspace({ initialSection }: SectionWorkspaceProps = {})
                           <Share2 className="w-3 h-3 text-amber-400" />
                           <span>Assign ({tune.assignedUserIds?.length || 0})</span>
                         </Button>
-                        <a
-                          href={tune.pdfUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center justify-center h-7 px-2 rounded-md border border-input text-xs font-medium hover:bg-accent"
-                          title="Open Sheet Music"
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTuneForViewer(tune)}
+                          className="inline-flex items-center justify-center h-7 px-2 rounded-md border border-input text-xs font-medium hover:bg-accent cursor-pointer transition-colors"
+                          title="View Score in Secured Viewer (Protected)"
                         >
                           <FileText className="w-3 h-3 text-primary" />
-                        </a>
+                        </button>
                       </div>
                     </div>
 
@@ -540,6 +541,14 @@ export function SectionWorkspace({ initialSection }: SectionWorkspaceProps = {})
           </Button>
         </DialogFooter>
       </Dialog>
+
+      {/* Secured In-App View-Only Modal with Anti-Screenshot Protection */}
+      <SecuredNoteViewerModal
+        isOpen={!!selectedTuneForViewer}
+        onClose={() => setSelectedTuneForViewer(null)}
+        tune={selectedTuneForViewer}
+        member={currentUser}
+      />
     </div>
   );
 }

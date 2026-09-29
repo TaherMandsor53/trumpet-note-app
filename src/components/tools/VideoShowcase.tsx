@@ -55,6 +55,7 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { SecurePdfCanvasViewer } from '@/components/notes/SecurePdfCanvasViewer';
 
 function Youtube({ className }: { className?: string }) {
   return (
@@ -318,7 +319,7 @@ export function VideoShowcase() {
   const [isScoreProtected, setIsScoreProtected] = useState(false);
   const [scoreProtectionReason, setScoreProtectionReason] = useState<string>('');
   const [isScoreFullscreen, setIsScoreFullscreen] = useState(false);
-  const [shutterGuardEnabled, setShutterGuardEnabled] = useState(false);
+  const [shutterGuardEnabled, setShutterGuardEnabled] = useState(true);
   const [isShutterRevealed, setIsShutterRevealed] = useState(false);
   const scoreViewerContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -329,22 +330,35 @@ export function VideoShowcase() {
   useEffect(() => {
     const checkIsMobileOrTablet = () => {
       if (typeof window === 'undefined') return false;
-      const isTouch = 'ontouchstart' in window || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
+      const isTouch =
+        'ontouchstart' in window ||
+        (typeof navigator !== 'undefined' &&
+          (navigator.maxTouchPoints > 0 || (navigator as any).msMaxTouchPoints > 0));
+      const isIPad =
+        typeof navigator !== 'undefined' &&
+        navigator.platform === 'MacIntel' &&
+        navigator.maxTouchPoints > 1;
       const isSmallScreen = window.innerWidth <= 1024;
       const isMobileUA =
         typeof navigator !== 'undefined' &&
         /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent);
-      return Boolean(isMobileUA || (isTouch && isSmallScreen) || isSmallScreen);
+      return Boolean(isMobileUA || isIPad || (isTouch && isSmallScreen) || isSmallScreen);
     };
 
     const detected = checkIsMobileOrTablet();
     setIsMobileOrTablet(detected);
     isMobileOrTabletRef.current = detected;
+    if (detected) {
+      setShutterGuardEnabled(true);
+    }
 
     const handleResize = () => {
       const res = checkIsMobileOrTablet();
       setIsMobileOrTablet(res);
       isMobileOrTabletRef.current = res;
+      if (res) {
+        setShutterGuardEnabled(true);
+      }
     };
 
     window.addEventListener('resize', handleResize);
@@ -376,24 +390,21 @@ export function VideoShowcase() {
       return;
     }
 
-    // Layer 1: Phone App Switcher & Backgrounding Detection (on mobile & tablet view)
+    // Layer 1: Phone / Tablet App Switcher & Backgrounding Detection
     const handleVisibilityChange = () => {
-      if (!isMobileOrTabletRef.current) return;
       if (document.hidden || document.visibilityState === 'hidden') {
-        triggerScoreSecurityAlert('Mobile/Tablet app-switcher, notification shade, or screenshot gesture detected.');
+        triggerScoreSecurityAlert('Document viewing paused: Screen backgrounded or app-switcher detected.');
       }
     };
 
-    // Layer 2: Window Focus Loss (on mobile & tablet view)
+    // Layer 2: Window Focus Loss (Triggered on Snipping Tool, Screenshot shortcut, or Window Switch)
     const handleWindowBlur = () => {
-      if (!isMobileOrTabletRef.current) return;
-      triggerScoreSecurityAlert('Viewing paused: Mobile/Tablet screen capture or app-switch was initiated.');
+      triggerScoreSecurityAlert('Viewing paused: Screen capture, Snipping Tool, or window switch was detected.');
     };
 
-    // Layer 3: Page Hide (on mobile & tablet view)
+    // Layer 3: Page Hide
     const handlePageHide = () => {
-      if (!isMobileOrTabletRef.current) return;
-      triggerScoreSecurityAlert('Mobile/Tablet screen backgrounded.');
+      triggerScoreSecurityAlert('Viewing paused: Mobile/Tablet screen was backgrounded.');
     };
 
     // Layer 4: Keyboard Screenshot Shortcut Interception
@@ -596,6 +607,7 @@ export function VideoShowcase() {
     setIsScoreProtected(false);
     setScoreProtectionReason('');
     setIsShutterRevealed(false);
+    setShutterGuardEnabled(true);
     setFilePopup({
       open: true,
       tuneName: item.tuneName,
@@ -1602,110 +1614,22 @@ export function VideoShowcase() {
               </div>
             )}
 
-            {/* Phone Shutter Guard (Touch / Hold Screen to Reveal) */}
-            {shutterGuardEnabled && !isShutterRevealed && !isScoreProtected && (
-              <div
-                className="absolute inset-0 z-40 bg-zinc-950/96 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none cursor-pointer"
-                onTouchStart={() => setIsShutterRevealed(true)}
-                onTouchEnd={() => setIsShutterRevealed(false)}
-                onMouseDown={() => setIsShutterRevealed(true)}
-                onMouseUp={() => setIsShutterRevealed(false)}
-                onMouseLeave={() => setIsShutterRevealed(false)}
-              >
-                <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border-2 border-amber-500/40 flex items-center justify-center mb-4 shadow-lg animate-bounce">
-                  <Fingerprint className="w-8 h-8 text-amber-400" />
-                </div>
-                <h4 className="text-lg font-serif font-bold text-foreground mb-1">
-                  Touch &amp; Hold to View Score
-                </h4>
-                <p className="text-xs text-muted-foreground max-w-sm mb-4">
-                  Anti-Screenshot Shutter Guard is active. Keep your finger pressed anywhere on this screen to read the score. Releasing will immediately cover the document.
-                </p>
-                <div className="inline-flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-400">
-                  <Smartphone className="w-4 h-4" /> Press &amp; Hold to Reveal
-                </div>
-              </div>
-            )}
-
-            {/* Dynamic Repeating High-Density Watermark Overlay */}
-            <div
-              className="absolute inset-0 z-30 pointer-events-none select-none overflow-hidden flex flex-wrap content-start justify-around gap-12 sm:gap-16 p-6 opacity-[0.24] dark:opacity-[0.28]"
-              aria-hidden="true"
-              style={{
-                WebkitTouchCallout: 'none',
-                WebkitUserSelect: 'none',
-                userSelect: 'none',
+            {/* Secured Canvas Document Viewer with Anti-Screenshot Shutter & Dynamic Stamped Watermark */}
+            <SecurePdfCanvasViewer
+              fileUrl={filePopup.fileUrl}
+              fileName={filePopup.fileName}
+              isPdf={filePopup.isPdf}
+              watermark={{
+                name: currentUser?.name || 'Band Officer',
+                itsNumber: currentUser?.itsNumber || '—',
+                instrument: filePopup.instrumentType,
+                timestamp: formattedScoreTimestamp,
               }}
-            >
-              {Array.from({ length: 30 }).map((_, idx) => (
-                <div
-                  key={idx}
-                  className="transform -rotate-25 text-center font-mono font-bold text-[10px] sm:text-[11px] tracking-wider leading-relaxed text-foreground select-none"
-                >
-                  <div className="text-amber-500/90 font-black">TAHERI SCOUT BAND</div>
-                  <div className="font-semibold text-foreground">{currentUser?.name?.toUpperCase() || 'AUTHORIZED OFFICER'}</div>
-                  <div>ITS: {currentUser?.itsNumber || '—'} • {filePopup.instrumentType}</div>
-                  <div className="text-[9px] text-red-400 font-sans font-extrabold uppercase">
-                    CONFIDENTIAL • DO NOT SCREENSHOT • {formattedScoreTimestamp}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Document Render Area */}
-            <div
-              className={`w-full h-full flex items-center justify-center overflow-auto p-1 transition-all ${
-                shutterGuardEnabled && isShutterRevealed ? 'cursor-grab active:cursor-grabbing' : ''
-              }`}
-              onTouchEnd={() => {
-                if (shutterGuardEnabled) setIsShutterRevealed(false);
-              }}
-              onMouseUp={() => {
-                if (shutterGuardEnabled) setIsShutterRevealed(false);
-              }}
-            >
-              {filePopup.isPdf ? (
-                <object
-                  data={formatScorePreviewUrl(filePopup.fileUrl)}
-                  type="application/pdf"
-                  className={cn(
-                    "w-full rounded-lg bg-white border-0",
-                    isScoreFullscreen ? "h-[92vh]" : "h-[70vh]"
-                  )}
-                  onContextMenu={e => e.preventDefault()}
-                >
-                  <iframe
-                    src={formatScorePreviewUrl(filePopup.fileUrl)}
-                    title={filePopup.tuneName}
-                    className={cn(
-                      "w-full rounded-lg border-0 bg-white",
-                      isScoreFullscreen ? "h-[92vh]" : "h-[70vh]"
-                    )}
-                    onContextMenu={e => e.preventDefault()}
-                  >
-                    <div className="p-8 text-center text-foreground space-y-3">
-                      <p className="text-sm font-semibold">Protected Score Preview</p>
-                      <p className="text-xs text-muted-foreground">
-                        Document viewing is restricted to this in-app secured frame. Direct downloading is disabled.
-                      </p>
-                    </div>
-                  </iframe>
-                </object>
-              ) : (
-                <div className={cn("overflow-auto p-2 flex items-center justify-center", isScoreFullscreen ? "max-h-[92vh]" : "max-h-[70vh]")}>
-                  <img
-                    src={filePopup.fileUrl}
-                    alt={filePopup.tuneName}
-                    draggable={false}
-                    onContextMenu={e => e.preventDefault()}
-                    className={cn(
-                      "object-contain rounded-lg shadow-lg select-none pointer-events-auto",
-                      isScoreFullscreen ? "max-h-[90vh]" : "max-h-[67vh]"
-                    )}
-                  />
-                </div>
-              )}
-            </div>
+              shutterGuardEnabled={shutterGuardEnabled}
+              isShutterRevealed={isShutterRevealed}
+              onShutterChange={setIsShutterRevealed}
+              isFullscreen={isScoreFullscreen}
+            />
           </div>
 
           <DialogFooter className="flex items-center justify-between sm:justify-between pt-2 border-t border-border/60">

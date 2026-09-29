@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import { useSelector } from 'react-redux';
+import { RootState } from '@/store';
 import {
   useGetUsersQuery,
   useGetTunesQuery,
@@ -21,6 +23,7 @@ import { InstrumentSection, Role, User } from '@/types/band';
 import { ALL_SECTIONS, ALL_ROLES } from '@/lib/rbac';
 import { formatDate, getDaysRemainingForNewBadge } from '@/lib/utils';
 import { MemberModal } from '@/components/members/MemberModal';
+import { SecuredNoteViewerModal } from '@/components/notes/SecuredNoteViewerModal';
 import { useToast } from '@/components/ui/toast';
 import {
   Crown,
@@ -38,6 +41,7 @@ import {
 } from 'lucide-react';
 
 export function ExecutiveDashboard() {
+  const currentUser = useSelector((state: RootState) => state.auth.user);
   const { data: usersData, refetch: refetchUsers } = useGetUsersQuery();
   const { data: tunesData } = useGetTunesQuery();
   const { data: metrics } = useGetAttendanceMetricsQuery();
@@ -48,6 +52,7 @@ export function ExecutiveDashboard() {
   const [activeTab, setActiveTab] = useState<'attendance' | 'members' | 'tunes'>('attendance');
   const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
   const [selectedMemberForEdit, setSelectedMemberForEdit] = useState<User | null>(null);
+  const [selectedTuneForViewer, setSelectedTuneForViewer] = useState<any>(null);
 
   const [searchMember, setSearchMember] = useState('');
   const [sectionFilter, setSectionFilter] = useState('All');
@@ -427,14 +432,13 @@ export function ExecutiveDashboard() {
                       <span className="text-[10px] text-muted-foreground">
                         Added {formatDate(tune.createdAt)}
                       </span>
-                      <a
-                        href={tune.pdfUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-primary hover:underline font-semibold"
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTuneForViewer(tune)}
+                        className="text-xs text-primary hover:underline font-semibold cursor-pointer"
                       >
                         View Sheet PDF →
-                      </a>
+                      </button>
                     </div>
                   </div>
                 );
@@ -454,6 +458,14 @@ export function ExecutiveDashboard() {
         onSuccess={() => refetchUsers()}
         memberToEdit={selectedMemberForEdit}
         userRole="Overall Major"
+      />
+
+      {/* Secured In-App View-Only Modal with Anti-Screenshot Protection */}
+      <SecuredNoteViewerModal
+        isOpen={!!selectedTuneForViewer}
+        onClose={() => setSelectedTuneForViewer(null)}
+        tune={selectedTuneForViewer}
+        member={currentUser}
       />
     </div>
   );

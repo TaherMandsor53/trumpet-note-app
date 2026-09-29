@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { SecurePdfCanvasViewer } from '@/components/notes/SecurePdfCanvasViewer';
 
 interface SecuredNoteViewerModalProps {
   isOpen: boolean;
@@ -53,7 +54,7 @@ export function SecuredNoteViewerModal({
   const [securityAlert, setSecurityAlert] = useState<string | null>(null);
 
   // Phone Anti-Screenshot Shutter Guard (Hold / Touch to Reveal)
-  const [shutterGuardEnabled, setShutterGuardEnabled] = useState(false);
+  const [shutterGuardEnabled, setShutterGuardEnabled] = useState(true);
   const [isShutterRevealed, setIsShutterRevealed] = useState(false);
 
   // Audio Playback state (optional if audioUrl is present)
@@ -64,29 +65,42 @@ export function SecuredNoteViewerModal({
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Device detection: Only block screenshots on mobile and tablet view
+  // Device detection: identify mobile/tablet devices
   const [isMobileOrTablet, setIsMobileOrTablet] = useState(false);
   const isMobileOrTabletRef = useRef(false);
 
   useEffect(() => {
     const checkIsMobileOrTablet = () => {
       if (typeof window === 'undefined') return false;
-      const isTouch = 'ontouchstart' in window || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
+      const isTouch =
+        'ontouchstart' in window ||
+        (typeof navigator !== 'undefined' &&
+          (navigator.maxTouchPoints > 0 || (navigator as any).msMaxTouchPoints > 0));
+      const isIPad =
+        typeof navigator !== 'undefined' &&
+        navigator.platform === 'MacIntel' &&
+        navigator.maxTouchPoints > 1;
       const isSmallScreen = window.innerWidth <= 1024;
       const isMobileUA =
         typeof navigator !== 'undefined' &&
         /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent);
-      return Boolean(isMobileUA || (isTouch && isSmallScreen) || isSmallScreen);
+      return Boolean(isMobileUA || isIPad || (isTouch && isSmallScreen) || isSmallScreen);
     };
 
     const detected = checkIsMobileOrTablet();
     setIsMobileOrTablet(detected);
     isMobileOrTabletRef.current = detected;
+    if (detected) {
+      setShutterGuardEnabled(true);
+    }
 
     const handleResize = () => {
       const res = checkIsMobileOrTablet();
       setIsMobileOrTablet(res);
       isMobileOrTabletRef.current = res;
+      if (res) {
+        setShutterGuardEnabled(true);
+      }
     };
 
     window.addEventListener('resize', handleResize);
@@ -161,24 +175,21 @@ export function SecuredNoteViewerModal({
       return;
     }
 
-    // Layer 1: Phone App Switcher & Backgrounding Detection (ONLY on mobile & tablet view)
+    // Layer 1: Phone / Tablet / Desktop App Switcher & Backgrounding Detection
     const handleVisibilityChange = () => {
-      if (!isMobileOrTabletRef.current) return;
       if (document.hidden || document.visibilityState === 'hidden') {
-        triggerSecurityAlert('Mobile/Tablet app-switcher, notification shade, or screenshot gesture detected.');
+        triggerSecurityAlert('Document viewing paused: Screen backgrounded or app-switcher detected.');
       }
     };
 
-    // Layer 2: Window Focus Loss (ONLY on mobile & tablet view when screenshotting or notification shade pulled)
+    // Layer 2: Window Focus Loss (Triggered on Snipping Tool, Screenshot shortcut, or Window Switch)
     const handleWindowBlur = () => {
-      if (!isMobileOrTabletRef.current) return;
-      triggerSecurityAlert('Viewing paused: Mobile/Tablet screen capture or app-switch was initiated.');
+      triggerSecurityAlert('Viewing paused: Screen capture, Snipping Tool, or window switch was detected.');
     };
 
-    // Layer 3: Page Hide (ONLY on mobile & tablet view)
+    // Layer 3: Page Hide
     const handlePageHide = () => {
-      if (!isMobileOrTabletRef.current) return;
-      triggerSecurityAlert('Mobile/Tablet screen backgrounded.');
+      triggerSecurityAlert('Viewing paused: Screen was backgrounded.');
     };
 
     // Layer 4: Keyboard Screenshot Shortcut Interception (Active across all devices)
@@ -469,98 +480,23 @@ export function SecuredNoteViewerModal({
             </div>
           )}
 
-          {/* Phone Shutter Guard (Touch / Hold Screen to Reveal) */}
-          {shutterGuardEnabled && !isShutterRevealed && !isScreenProtected && (
-            <div
-              className="absolute inset-0 z-40 bg-zinc-950/96 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none cursor-pointer"
-              onTouchStart={() => setIsShutterRevealed(true)}
-              onTouchEnd={() => setIsShutterRevealed(false)}
-              onMouseDown={() => setIsShutterRevealed(true)}
-              onMouseUp={() => setIsShutterRevealed(false)}
-              onMouseLeave={() => setIsShutterRevealed(false)}
-            >
-              <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border-2 border-amber-500/40 flex items-center justify-center mb-4 shadow-lg animate-bounce">
-                <Fingerprint className="w-8 h-8 text-amber-400" />
-              </div>
-              <h4 className="text-lg font-serif font-bold text-foreground mb-1">
-                Touch &amp; Hold to View Note
-              </h4>
-              <p className="text-xs text-muted-foreground max-w-sm mb-4">
-                Anti-Screenshot Shutter Guard is active. Keep your finger pressed anywhere on this screen to read the score. Releasing will immediately cover the document.
-              </p>
-              <div className="inline-flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-400">
-                <Smartphone className="w-4 h-4" /> Press &amp; Hold to Reveal
-              </div>
-            </div>
-          )}
-
-          {/* Dynamic Repeating High-Density Watermark Overlay */}
-          <div
-            className="absolute inset-0 z-30 pointer-events-none select-none overflow-hidden flex flex-wrap content-start justify-around gap-12 sm:gap-16 p-6 opacity-[0.24] dark:opacity-[0.28]"
-            aria-hidden="true"
-            style={{
-              WebkitTouchCallout: 'none',
-              WebkitUserSelect: 'none',
-              userSelect: 'none',
-            }}
-          >
-            {Array.from({ length: 30 }).map((_, idx) => (
-              <div
-                key={idx}
-                className="transform -rotate-25 text-center font-mono font-bold text-[10px] sm:text-[11px] tracking-wider leading-relaxed text-foreground select-none"
-              >
-                <div className="text-amber-500/90 font-black">TAHERI SCOUT BAND</div>
-                <div className="font-semibold text-foreground">{member?.name?.toUpperCase()}</div>
-                <div>ITS: {member?.itsNumber || '—'} • {member?.section || 'Trumpet'}</div>
-                <div className="text-[9px] text-red-400 font-sans font-extrabold uppercase">
-                  CONFIDENTIAL • DO NOT SCREENSHOT • {formattedTimestamp}
-                </div>
-              </div>
-            ))}
+          {/* Secured Canvas Document Viewer with Anti-Screenshot Shutter & Dynamic Stamped Watermark */}
+          <SecurePdfCanvasViewer
+              fileUrl={tune.pdfUrl}
+              fileName={tune.title}
+              isPdf={!isImageFile}
+              watermark={{
+                name: member?.name || 'Authorized Musician',
+                itsNumber: member?.itsNumber || '—',
+                instrument: tune.section || member?.section || 'Trumpet',
+                timestamp: formattedTimestamp,
+              }}
+              shutterGuardEnabled={shutterGuardEnabled}
+              isShutterRevealed={isShutterRevealed}
+              onShutterChange={setIsShutterRevealed}
+              isFullscreen={isFullscreen}
+            />
           </div>
-
-          {/* Document Render Area (PDF / Drive Preview / Image) */}
-          <div
-            className={`w-full h-full flex items-center justify-center overflow-auto p-1 sm:p-2 transition-all ${
-              shutterGuardEnabled && isShutterRevealed ? 'cursor-grab active:cursor-grabbing' : ''
-            }`}
-            onTouchEnd={() => {
-              if (shutterGuardEnabled) setIsShutterRevealed(false);
-            }}
-            onMouseUp={() => {
-              if (shutterGuardEnabled) setIsShutterRevealed(false);
-            }}
-          >
-            {isImageFile ? (
-              <div className="relative max-h-full max-w-full overflow-auto flex items-center justify-center p-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={previewUrl}
-                  alt={tune.title}
-                  draggable={false}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className="max-h-[80vh] w-auto object-contain rounded-lg shadow-2xl select-none pointer-events-auto"
-                />
-              </div>
-            ) : (
-              <div className="relative w-full h-full flex flex-col">
-                <object
-                  data={previewUrl}
-                  type="application/pdf"
-                  className="w-full h-full rounded-lg border-0 bg-white"
-                  onContextMenu={(e) => e.preventDefault()}
-                >
-                  <iframe
-                    src={previewUrl}
-                    title={tune.title}
-                    className="w-full h-full rounded-lg border-0 bg-white"
-                    onContextMenu={(e) => e.preventDefault()}
-                  />
-                </object>
-              </div>
-            )}
-          </div>
-        </div>
 
         {/* 4. Footer: Confidentiality & Compliance Notice */}
         <div className="px-4 py-2.5 border-t border-border bg-card/95 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
