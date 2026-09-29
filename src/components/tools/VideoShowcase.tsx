@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import { RootState } from '@/store';
 import { isOverallMajor, isInstrumentMajor, getManagedSection } from '@/lib/rbac';
@@ -37,6 +37,7 @@ import {
   Trash2,
   AlertTriangle,
   Maximize2,
+  Minimize2,
   Download,
   Loader2,
   Users,
@@ -45,8 +46,13 @@ import {
   CheckSquare,
   Square,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
   Filter,
   Lock,
+  Smartphone,
+  Fingerprint,
+  EyeOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -164,19 +170,49 @@ function extractYoutubeVideoId(url?: string): string | null {
 }
 
 /**
- * Ensures Google Drive links use /preview for embedding without X-Frame-Options errors
+ * Ensures Google Drive links use /preview and PDF links suppress browser toolbars & download options
  */
 function formatScorePreviewUrl(url?: string): string {
   if (!url) return '';
-  if (url.includes('drive.google.com')) {
-    if (url.includes('/preview')) return url;
-    const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  let clean = url.trim();
+
+  // Ensure leading slash for local relative paths
+  if (
+    !clean.startsWith('http://') &&
+    !clean.startsWith('https://') &&
+    !clean.startsWith('/') &&
+    !clean.startsWith('blob:') &&
+    !clean.startsWith('data:')
+  ) {
+    clean = '/' + clean;
+  }
+
+  // Google Drive URL transformation
+  if (clean.includes('drive.google.com')) {
+    const match = clean.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || clean.match(/\/d\/([a-zA-Z0-9_-]+)/) || clean.match(/id=([a-zA-Z0-9_-]+)/);
     if (match && match[1]) {
       return `https://drive.google.com/file/d/${match[1]}/preview`;
     }
-    return url.replace(/\/view(\?.*)?$/, '/preview');
+    if (clean.includes('/preview')) return clean;
+    return clean.replace(/\/view(\?.*)?$/, '/preview');
   }
-  return url;
+
+  // Direct PDF URL: suppress browser PDF viewer toolbar, download/print buttons, navpanes, scrollbars
+  if (clean.toLowerCase().includes('.pdf')) {
+    const [basePath] = clean.split('#');
+    let safePath = basePath;
+    if (safePath.includes(' ') && !safePath.includes('%20')) {
+      safePath = encodeURI(safePath);
+    }
+    return `${safePath}#toolbar=0&navpanes=0&scrollbar=0`;
+  }
+
+  // Encode spaces for other file URLs
+  if (clean.includes(' ') && !clean.includes('%20')) {
+    clean = encodeURI(clean);
+  }
+
+  return clean;
 }
 
 export function VideoShowcase() {
@@ -268,7 +304,7 @@ export function VideoShowcase() {
   // Modal State for Adding Tune Notes
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  // Modal State for Viewing Score in Popup (NO auto download)
+  // Modal State for Viewing Score in Popup (NO auto download, anti-screenshot protected)
   const [filePopup, setFilePopup] = useState<FilePopupState>({
     open: false,
     tuneName: '',
@@ -277,6 +313,198 @@ export function VideoShowcase() {
     fileUrl: '',
     isPdf: true,
   });
+
+  // Score Modal Security & Anti-Screenshot States
+  const [isScoreProtected, setIsScoreProtected] = useState(false);
+  const [scoreProtectionReason, setScoreProtectionReason] = useState<string>('');
+  const [isScoreFullscreen, setIsScoreFullscreen] = useState(false);
+  const [shutterGuardEnabled, setShutterGuardEnabled] = useState(false);
+  const [isShutterRevealed, setIsShutterRevealed] = useState(false);
+  const scoreViewerContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Device detection: identify mobile/tablet devices
+  const [isMobileOrTablet, setIsMobileOrTablet] = useState(false);
+  const isMobileOrTabletRef = useRef(false);
+
+  useEffect(() => {
+    const checkIsMobileOrTablet = () => {
+      if (typeof window === 'undefined') return false;
+      const isTouch = 'ontouchstart' in window || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
+      const isSmallScreen = window.innerWidth <= 1024;
+      const isMobileUA =
+        typeof navigator !== 'undefined' &&
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent);
+      return Boolean(isMobileUA || (isTouch && isSmallScreen) || isSmallScreen);
+    };
+
+    const detected = checkIsMobileOrTablet();
+    setIsMobileOrTablet(detected);
+    isMobileOrTabletRef.current = detected;
+
+    const handleResize = () => {
+      const res = checkIsMobileOrTablet();
+      setIsMobileOrTablet(res);
+      isMobileOrTabletRef.current = res;
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Trigger Security Alert & Blackout on screenshot / unauthorized action
+  const triggerScoreSecurityAlert = useCallback((reason: string) => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(
+          '🔒 CONFIDENTIAL DOCUMENT: Taheri Scout Band score notes are restricted. Screenshots, prints, and downloads are strictly prohibited.'
+        ).catch(() => {});
+      }
+    } catch {
+      // Ignore
+    }
+
+    setIsScoreProtected(true);
+    setScoreProtectionReason(reason);
+  }, []);
+
+  // Multi-layered Anti-Screenshot & Screen Capture Protection for Score Viewer
+  useEffect(() => {
+    if (!filePopup.open) {
+      setIsScoreProtected(false);
+      setScoreProtectionReason('');
+      setIsShutterRevealed(false);
+      return;
+    }
+
+    // Layer 1: Phone App Switcher & Backgrounding Detection (on mobile & tablet view)
+    const handleVisibilityChange = () => {
+      if (!isMobileOrTabletRef.current) return;
+      if (document.hidden || document.visibilityState === 'hidden') {
+        triggerScoreSecurityAlert('Mobile/Tablet app-switcher, notification shade, or screenshot gesture detected.');
+      }
+    };
+
+    // Layer 2: Window Focus Loss (on mobile & tablet view)
+    const handleWindowBlur = () => {
+      if (!isMobileOrTabletRef.current) return;
+      triggerScoreSecurityAlert('Viewing paused: Mobile/Tablet screen capture or app-switch was initiated.');
+    };
+
+    // Layer 3: Page Hide (on mobile & tablet view)
+    const handlePageHide = () => {
+      if (!isMobileOrTabletRef.current) return;
+      triggerScoreSecurityAlert('Mobile/Tablet screen backgrounded.');
+    };
+
+    // Layer 4: Keyboard Screenshot Shortcut Interception
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // PrintScreen key
+      if (e.key === 'PrintScreen' || e.keyCode === 44) {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerScoreSecurityAlert('Screenshot shortcut (PrintScreen) intercepted.');
+        return;
+      }
+
+      // Ctrl / Cmd + P (Print)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerScoreSecurityAlert('Printing is strictly prohibited for confidential band scores.');
+        return;
+      }
+
+      // Ctrl / Cmd + S (Save / Download)
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerScoreSecurityAlert('Direct file saving or downloading is disabled.');
+        return;
+      }
+
+      // Windows Snipping Tool (Ctrl + Shift + S or Win + Shift + S)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerScoreSecurityAlert('Screen Snip / Snipping Tool shortcut blocked.');
+        return;
+      }
+
+      // macOS Screenshot shortcuts (Cmd + Shift + 3 / 4 / 5)
+      if (e.metaKey && e.shiftKey && ['3', '4', '5'].includes(e.key)) {
+        e.preventDefault();
+        e.stopPropagation();
+        triggerScoreSecurityAlert('Screen capture shortcut blocked.');
+        return;
+      }
+
+      // Escape key to exit fullscreen or close modal
+      if (e.key === 'Escape') {
+        if (document.fullscreenElement) {
+          document.exitFullscreen?.().catch(() => {});
+          setIsScoreFullscreen(false);
+        } else {
+          setFilePopup(prev => ({ ...prev, open: false }));
+        }
+      }
+    };
+
+    // Layer 5: Clipboard copy / cut prevention
+    const handleCopy = (e: ClipboardEvent) => {
+      e.preventDefault();
+      if (e.clipboardData) {
+        e.clipboardData.setData('text/plain', '🔒 CONFIDENTIAL: Taheri Scout Band Score - Copying Prohibited.');
+      }
+      triggerScoreSecurityAlert('Copying score content is prohibited.');
+    };
+
+    // Layer 6: BeforePrint detection
+    const handleBeforePrint = (e: Event) => {
+      e.preventDefault();
+      triggerScoreSecurityAlert('Printing is prohibited.');
+    };
+
+    // Fullscreen change listener to sync isScoreFullscreen
+    const handleFullscreenChange = () => {
+      setIsScoreFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('copy', handleCopy);
+    window.addEventListener('cut', handleCopy);
+    window.addEventListener('beforeprint', handleBeforePrint);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('copy', handleCopy);
+      window.removeEventListener('cut', handleCopy);
+      window.removeEventListener('beforeprint', handleBeforePrint);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, [filePopup.open, triggerScoreSecurityAlert]);
+
+  // Fullscreen toggle handler
+  const handleToggleScoreFullscreen = () => {
+    if (!scoreViewerContainerRef.current) return;
+    if (!document.fullscreenElement) {
+      scoreViewerContainerRef.current.requestFullscreen?.().catch(() => {});
+      setIsScoreFullscreen(true);
+    } else {
+      document.exitFullscreen?.().catch(() => {});
+      setIsScoreFullscreen(false);
+    }
+  };
+
+  const formattedScoreTimestamp = useMemo(() => {
+    return new Date().toISOString().replace('T', ' ').slice(0, 16);
+  }, [filePopup.open]);
 
   // Modal State for Direct Video Popup Playback
   const [videoPopup, setVideoPopup] = useState<VideoPopupState>({
@@ -352,7 +580,7 @@ export function VideoShowcase() {
 
   const activeVideoId = activeTune ? extractYoutubeVideoId(activeTune.youtubeLink) : null;
 
-  // Handle Score File click: Opens in popup without downloading
+  // Handle Score File click: Opens in secured popup without downloading
   const handleOpenFilePopup = (item: any) => {
     if (!item.fileUrl) {
       toast.error('No File Available', 'This entry does not have an attached score file.');
@@ -365,6 +593,9 @@ export function VideoShowcase() {
       item.fileUrl?.includes('application/pdf') ||
       !item.fileName?.match(/\.(png|jpg|jpeg|webp)$/i);
 
+    setIsScoreProtected(false);
+    setScoreProtectionReason('');
+    setIsShutterRevealed(false);
     setFilePopup({
       open: true,
       tuneName: item.tuneName,
@@ -905,14 +1136,14 @@ export function VideoShowcase() {
                           </div>
                         </td>
 
-                        {/* 3. Score File (Opens in popup without downloading + external link) */}
+                        {/* 3. Score File (Opens in secured popup, no download or external link) */}
                         <td className="py-3 px-4 text-center">
                           {item.fileUrl ? (
-                            <div className="inline-flex items-center gap-1">
+                            <div className="inline-flex items-center justify-center">
                               <button
                                 type="button"
                                 onClick={() => handleOpenFilePopup(item)}
-                                title="Click to view score in popup (no download)"
+                                title="Click to view score in secured popup (download & screenshot protected)"
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold cursor-pointer transition-all hover:scale-105 active:scale-95"
                               >
                                 {item.fileName?.toLowerCase().endsWith('.pdf') ? (
@@ -922,15 +1153,6 @@ export function VideoShowcase() {
                                 )}
                                 <span>View Score</span>
                               </button>
-                              <a
-                                href={formatScorePreviewUrl(item.fileUrl)}
-                                target="_blank"
-                                rel="noreferrer"
-                                title="Open Score in New Tab"
-                                className="p-1 rounded text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
-                              >
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
                             </div>
                           ) : (
                             <span className="text-muted-foreground/60 text-[11px]">-</span>
@@ -1214,13 +1436,38 @@ export function VideoShowcase() {
         </form>
       </Dialog>
 
-      {/* POPUP MODAL: Score File Viewer (NO auto download) */}
+      {/* POPUP MODAL: Score File Viewer (Secured In-App View, NO download, Anti-Screenshot) */}
       <Dialog
         open={filePopup.open}
-        onOpenChange={open => setFilePopup(prev => ({ ...prev, open }))}
-        contentClassName="max-w-4xl"
+        onOpenChange={open => {
+          if (!open && document.fullscreenElement) {
+            document.exitFullscreen?.().catch(() => {});
+            setIsScoreFullscreen(false);
+          }
+          setFilePopup(prev => ({ ...prev, open }));
+        }}
+        contentClassName="max-w-5xl"
       >
         <div className="space-y-3">
+          {/* Dynamic CSS Print Shield: Blanks out page completely if user attempts printing */}
+          <style dangerouslySetInnerHTML={{
+            __html: `
+              @media print {
+                body * { display: none !important; }
+                html, body { background: #000000 !important; color: #ffffff !important; }
+                body::before {
+                  content: "CONFIDENTIAL DOCUMENT - PRINTING PROHIBITED (TAHERI SCOUT BAND)";
+                  display: block !important;
+                  font-family: sans-serif;
+                  font-size: 20px;
+                  color: red;
+                  text-align: center;
+                  margin-top: 20%;
+                }
+              }
+            `,
+          }} />
+
           <DialogHeader>
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -1230,81 +1477,255 @@ export function VideoShowcase() {
                 <Badge variant="outline" className="text-[10px] text-amber-400 border-amber-500/40">
                   {filePopup.instrumentType}
                 </Badge>
+                <Badge variant="outline" className="text-[10px] py-0.5 px-2 font-bold border-amber-500/50 text-amber-500 bg-amber-500/10">
+                  <ShieldCheck className="w-3 h-3 mr-1 inline" />
+                  View-Only
+                </Badge>
+                <Badge variant="outline" className="text-[10px] py-0.5 px-2 font-mono text-red-400 border-red-500/40 bg-red-500/10">
+                  <Lock className="w-3 h-3 mr-1 inline" />
+                  Non-Downloadable
+                </Badge>
               </div>
               <div className="flex items-center gap-2">
-                <a
-                  href={formatScorePreviewUrl(filePopup.fileUrl)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1 rounded-md border border-emerald-500/30 transition-colors"
+                {/* Phone Shutter Guard Toggle */}
+                <Button
+                  type="button"
+                  variant={shutterGuardEnabled ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => {
+                    setShutterGuardEnabled(!shutterGuardEnabled);
+                    setIsShutterRevealed(false);
+                  }}
+                  className={`text-xs h-7 px-2.5 gap-1.5 transition-all ${
+                    shutterGuardEnabled
+                      ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                      : 'border-amber-500/40 text-amber-500 hover:bg-amber-500/10'
+                  }`}
+                  title="Toggle Mobile/Tablet Touch-to-Reveal Shutter for anti-screenshot protection"
                 >
-                  <Maximize2 className="w-3 h-3" />
-                  <span>Open Fullscreen</span>
-                </a>
-                <a
-                  href={filePopup.fileUrl}
-                  download={filePopup.fileName}
-                  className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground bg-muted/40 hover:bg-muted/70 px-2.5 py-1 rounded-md border border-border transition-colors"
+                  <Smartphone className="w-3 h-3" />
+                  <span className="hidden sm:inline font-semibold">
+                    {shutterGuardEnabled ? 'Shutter: ON' : 'Shutter Guard'}
+                  </span>
+                </Button>
+
+                {/* In-App Fullscreen Toggle Button (NO opening raw file in a new tab) */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleToggleScoreFullscreen}
+                  className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 h-7 rounded-md border border-emerald-500/30 transition-colors"
+                  title={isScoreFullscreen ? 'Exit Fullscreen' : 'View Fullscreen'}
                 >
-                  <Download className="w-3 h-3" />
-                  <span>Download</span>
-                </a>
+                  {isScoreFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+                  <span>{isScoreFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
+                </Button>
               </div>
             </div>
             <DialogTitle className="text-lg font-serif font-black text-foreground">
               {filePopup.tuneName}
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              Viewing score file: <span className="font-mono text-foreground">{filePopup.fileName}</span>
+              Viewing score file: <span className="font-mono text-foreground">{filePopup.fileName}</span> • Authorized: <span className="text-foreground font-semibold">{currentUser?.name || 'Band Officer'}</span> ({role})
             </DialogDescription>
           </DialogHeader>
 
-          {/* Embedded Score Display */}
-          <div className="rounded-xl overflow-hidden border border-border/80 bg-zinc-950/80 flex items-center justify-center min-h-[380px]">
-            {filePopup.isPdf ? (
-              <object
-                data={formatScorePreviewUrl(filePopup.fileUrl)}
-                type="application/pdf"
-                className="w-full h-[68vh] rounded-lg bg-white"
-              >
-                <iframe
-                  src={`${formatScorePreviewUrl(filePopup.fileUrl)}#toolbar=0`}
-                  title={filePopup.tuneName}
-                  className="w-full h-[68vh] rounded-lg border-0 bg-white"
+          {/* Security Notice Banner */}
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-1.5 text-[11px] text-amber-300 flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 overflow-hidden">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
+              <span className="font-semibold text-amber-200">Confidential Score Guard:</span>
+              <span className="truncate">
+                Direct downloads, printing, and screenshots are restricted. Dynamic watermark applied.
+              </span>
+            </div>
+            <span className="font-mono text-[10px] text-muted-foreground shrink-0 hidden sm:inline">
+              SECURE-VIEW • 1448H
+            </span>
+          </div>
+
+          {/* Embedded Score Display with Multi-Layered Anti-Screenshot Protection */}
+          <div
+            ref={scoreViewerContainerRef}
+            className="relative rounded-xl overflow-hidden border border-border/80 bg-zinc-950 flex flex-col items-center justify-center min-h-[420px] select-none"
+            onContextMenu={e => e.preventDefault()}
+            style={{
+              WebkitTouchCallout: 'none',
+              WebkitUserSelect: 'none',
+              userSelect: 'none',
+            }}
+          >
+            {/* Floating Exit Fullscreen bar when active */}
+            {isScoreFullscreen && (
+              <div className="absolute top-3 right-3 z-40">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleToggleScoreFullscreen}
+                  className="bg-black/80 text-white border-white/30 hover:bg-black text-xs gap-1.5 backdrop-blur-sm"
                 >
-                  <div className="p-8 text-center text-foreground space-y-3">
-                    <p className="text-sm">Unable to display PDF directly in your browser frame.</p>
-                    <a
-                      href={formatScorePreviewUrl(filePopup.fileUrl)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg font-semibold text-xs"
-                    >
-                      <Maximize2 className="w-4 h-4" /> Open PDF in New Tab
-                    </a>
-                  </div>
-                </iframe>
-              </object>
-            ) : (
-              <div className="max-h-[68vh] overflow-auto p-2 flex items-center justify-center">
-                <img
-                  src={filePopup.fileUrl}
-                  alt={filePopup.tuneName}
-                  className="max-h-[65vh] object-contain rounded-lg shadow-lg"
-                />
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  <span>Exit Fullscreen</span>
+                </Button>
               </div>
             )}
+
+            {/* Blackout Shield (When screen capture, shortcut, or app-switch detected) */}
+            {isScoreProtected && (
+              <div className="absolute inset-0 z-50 bg-black/98 backdrop-blur-2xl flex flex-col items-center justify-center p-6 text-center select-none animate-in fade-in duration-150">
+                <div className="w-16 h-16 rounded-full bg-red-500/20 border-2 border-red-500/40 flex items-center justify-center mb-4 shadow-lg shadow-red-500/10 animate-pulse">
+                  <ShieldAlert className="w-8 h-8 text-red-500" />
+                </div>
+                <h3 className="text-xl font-serif font-black text-red-400 mb-1.5 tracking-tight">
+                  🔒 Viewing Shield Active
+                </h3>
+                <p className="text-xs text-muted-foreground max-w-md mb-2">
+                  {scoreProtectionReason || 'Document viewing was paused because a screen capture, screenshot gesture, or app-switch was detected.'}
+                </p>
+                <div className="bg-amber-500/10 border border-amber-500/30 text-amber-300 px-3.5 py-2 rounded-xl text-xs font-mono mb-6 max-w-sm">
+                  User: <span className="font-bold text-foreground">{currentUser?.name || 'Band Officer'}</span> ({role})
+                  <br />
+                  ITS: <span className="font-bold text-amber-400">{currentUser?.itsNumber || '—'}</span> • {filePopup.instrumentType}
+                </div>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setIsScoreProtected(false);
+                    setScoreProtectionReason('');
+                  }}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs px-6 py-2.5 rounded-xl shadow-lg transition-transform active:scale-95"
+                >
+                  <Eye className="w-4 h-4 mr-2" /> Resume Secure Viewing
+                </Button>
+              </div>
+            )}
+
+            {/* Phone Shutter Guard (Touch / Hold Screen to Reveal) */}
+            {shutterGuardEnabled && !isShutterRevealed && !isScoreProtected && (
+              <div
+                className="absolute inset-0 z-40 bg-zinc-950/96 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none cursor-pointer"
+                onTouchStart={() => setIsShutterRevealed(true)}
+                onTouchEnd={() => setIsShutterRevealed(false)}
+                onMouseDown={() => setIsShutterRevealed(true)}
+                onMouseUp={() => setIsShutterRevealed(false)}
+                onMouseLeave={() => setIsShutterRevealed(false)}
+              >
+                <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border-2 border-amber-500/40 flex items-center justify-center mb-4 shadow-lg animate-bounce">
+                  <Fingerprint className="w-8 h-8 text-amber-400" />
+                </div>
+                <h4 className="text-lg font-serif font-bold text-foreground mb-1">
+                  Touch &amp; Hold to View Score
+                </h4>
+                <p className="text-xs text-muted-foreground max-w-sm mb-4">
+                  Anti-Screenshot Shutter Guard is active. Keep your finger pressed anywhere on this screen to read the score. Releasing will immediately cover the document.
+                </p>
+                <div className="inline-flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-400">
+                  <Smartphone className="w-4 h-4" /> Press &amp; Hold to Reveal
+                </div>
+              </div>
+            )}
+
+            {/* Dynamic Repeating High-Density Watermark Overlay */}
+            <div
+              className="absolute inset-0 z-30 pointer-events-none select-none overflow-hidden flex flex-wrap content-start justify-around gap-12 sm:gap-16 p-6 opacity-[0.24] dark:opacity-[0.28]"
+              aria-hidden="true"
+              style={{
+                WebkitTouchCallout: 'none',
+                WebkitUserSelect: 'none',
+                userSelect: 'none',
+              }}
+            >
+              {Array.from({ length: 30 }).map((_, idx) => (
+                <div
+                  key={idx}
+                  className="transform -rotate-25 text-center font-mono font-bold text-[10px] sm:text-[11px] tracking-wider leading-relaxed text-foreground select-none"
+                >
+                  <div className="text-amber-500/90 font-black">TAHERI SCOUT BAND</div>
+                  <div className="font-semibold text-foreground">{currentUser?.name?.toUpperCase() || 'AUTHORIZED OFFICER'}</div>
+                  <div>ITS: {currentUser?.itsNumber || '—'} • {filePopup.instrumentType}</div>
+                  <div className="text-[9px] text-red-400 font-sans font-extrabold uppercase">
+                    CONFIDENTIAL • DO NOT SCREENSHOT • {formattedScoreTimestamp}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Document Render Area */}
+            <div
+              className={`w-full h-full flex items-center justify-center overflow-auto p-1 transition-all ${
+                shutterGuardEnabled && isShutterRevealed ? 'cursor-grab active:cursor-grabbing' : ''
+              }`}
+              onTouchEnd={() => {
+                if (shutterGuardEnabled) setIsShutterRevealed(false);
+              }}
+              onMouseUp={() => {
+                if (shutterGuardEnabled) setIsShutterRevealed(false);
+              }}
+            >
+              {filePopup.isPdf ? (
+                <object
+                  data={formatScorePreviewUrl(filePopup.fileUrl)}
+                  type="application/pdf"
+                  className={cn(
+                    "w-full rounded-lg bg-white border-0",
+                    isScoreFullscreen ? "h-[92vh]" : "h-[70vh]"
+                  )}
+                  onContextMenu={e => e.preventDefault()}
+                >
+                  <iframe
+                    src={formatScorePreviewUrl(filePopup.fileUrl)}
+                    title={filePopup.tuneName}
+                    className={cn(
+                      "w-full rounded-lg border-0 bg-white",
+                      isScoreFullscreen ? "h-[92vh]" : "h-[70vh]"
+                    )}
+                    onContextMenu={e => e.preventDefault()}
+                  >
+                    <div className="p-8 text-center text-foreground space-y-3">
+                      <p className="text-sm font-semibold">Protected Score Preview</p>
+                      <p className="text-xs text-muted-foreground">
+                        Document viewing is restricted to this in-app secured frame. Direct downloading is disabled.
+                      </p>
+                    </div>
+                  </iframe>
+                </object>
+              ) : (
+                <div className={cn("overflow-auto p-2 flex items-center justify-center", isScoreFullscreen ? "max-h-[92vh]" : "max-h-[70vh]")}>
+                  <img
+                    src={filePopup.fileUrl}
+                    alt={filePopup.tuneName}
+                    draggable={false}
+                    onContextMenu={e => e.preventDefault()}
+                    className={cn(
+                      "object-contain rounded-lg shadow-lg select-none pointer-events-auto",
+                      isScoreFullscreen ? "max-h-[90vh]" : "max-h-[67vh]"
+                    )}
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           <DialogFooter className="flex items-center justify-between sm:justify-between pt-2 border-t border-border/60">
-            <span className="text-[11px] text-muted-foreground font-mono">
-              Score opened without automatic download
-            </span>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Shield className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span className="text-[11px] font-mono">
+                Confidential Band Score • Downloads and Screenshots Restricted
+              </span>
+            </div>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setFilePopup(prev => ({ ...prev, open: false }))}
+              onClick={() => {
+                if (document.fullscreenElement) {
+                  document.exitFullscreen?.().catch(() => {});
+                  setIsScoreFullscreen(false);
+                }
+                setFilePopup(prev => ({ ...prev, open: false }));
+              }}
             >
               Close
             </Button>
