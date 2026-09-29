@@ -26,19 +26,63 @@ declare global {
     financials: LavajamRecord[];
     expenses: ExpenseRecord[];
     attendance: AttendanceSession[];
+    lastExcelMtime?: number;
   } | undefined;
 }
 
 export function getDatabase() {
   if (!globalThis.__bandDatabase) {
+    let initialUsers = [...INITIAL_USERS];
+    if (typeof window === 'undefined') {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { getMembersFromExcel } = require('./google-sheets');
+        const excelUsers = getMembersFromExcel();
+        if (excelUsers && excelUsers.length > 0) {
+          initialUsers = excelUsers;
+        }
+      } catch {
+        // Fallback to INITIAL_USERS
+      }
+    }
+    const initialAttendance = loadSessionsFromExcel(initialUsers);
     globalThis.__bandDatabase = {
-      users: [...INITIAL_USERS],
+      users: initialUsers,
       tunes: [...INITIAL_TUNES],
       financials: [...INITIAL_LAVAJAM],
       expenses: [...INITIAL_EXPENSES],
-      attendance: [...INITIAL_ATTENDANCE_SESSIONS],
+      attendance: initialAttendance.length > 0 ? initialAttendance : [...INITIAL_ATTENDANCE_SESSIONS],
     };
   } else {
+    // Hot-reload if local Excel file changed on disk
+    if (typeof window === 'undefined') {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const fs = require('fs');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const path = require('path');
+        const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+        if (fs.existsSync(excelPath)) {
+          const mtime = fs.statSync(excelPath).mtimeMs;
+          if (!globalThis.__bandDatabase.lastExcelMtime || mtime > globalThis.__bandDatabase.lastExcelMtime) {
+            globalThis.__bandDatabase.lastExcelMtime = mtime;
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { getMembersFromExcel } = require('./google-sheets');
+            const excelUsers = getMembersFromExcel();
+            if (excelUsers && excelUsers.length > 0) {
+              globalThis.__bandDatabase.users = excelUsers;
+            }
+            const excelSessions = loadSessionsFromExcel(globalThis.__bandDatabase.users);
+            if (excelSessions && excelSessions.length > 0) {
+              globalThis.__bandDatabase.attendance = excelSessions;
+            }
+          }
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
     if (!globalThis.__bandDatabase.expenses) {
       globalThis.__bandDatabase.expenses = [...INITIAL_EXPENSES];
     }
@@ -79,14 +123,15 @@ export function getDatabase() {
       if (idx === -1) {
         existing.push({ ...initUser });
       } else {
-        // Sync attributes while preserving any runtime password changes
+        // Sync attributes while preserving live dynamic values from Excel or Sheets
         existing[idx] = {
-          ...existing[idx],
           ...initUser,
+          ...existing[idx],
           password: existing[idx].password || initUser.password,
-          role: initUser.role,
-          section: initUser.section,
-          rank: initUser.rank,
+          role: existing[idx].role || initUser.role,
+          section: existing[idx].section || initUser.section,
+          name: existing[idx].name || initUser.name,
+          rank: existing[idx].rank || initUser.rank,
         };
       }
     }
@@ -120,7 +165,7 @@ export function getDatabase() {
 
     // If attendance is empty after removing mock records, load real sessions from Attendance Details Excel sheet
     if (globalThis.__bandDatabase.attendance.length === 0) {
-      globalThis.__bandDatabase.attendance = loadSessionsFromExcel();
+      globalThis.__bandDatabase.attendance = loadSessionsFromExcel(existing);
     }
 
     // Sync tunes.assignedUserIds strictly from Assign Notes sheet in Excel
@@ -161,7 +206,7 @@ export function getDatabase() {
   return globalThis.__bandDatabase;
 }
 
-function loadSessionsFromExcel(): AttendanceSession[] {
+function loadSessionsFromExcel(providedUsers?: User[]): AttendanceSession[] {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const XLSX = require('xlsx');
@@ -181,7 +226,7 @@ function loadSessionsFromExcel(): AttendanceSession[] {
 
     const headers = rows[0];
     const sessions: AttendanceSession[] = [];
-    const allUsers = getUsers();
+    const allUsers = providedUsers || (globalThis.__bandDatabase ? globalThis.__bandDatabase.users : INITIAL_USERS);
 
     for (let c = 1; c < headers.length; c++) {
       const headerVal = String(headers[c] || '').trim();
@@ -195,10 +240,21 @@ function loadSessionsFromExcel(): AttendanceSession[] {
         const memberName = String(rows[r][0] || '').trim();
         const statusVal = String(rows[r][c] || '').trim();
         if (statusVal && ['Present', 'Absent', 'Late', 'Excused'].includes(statusVal)) {
-          const userObj = allUsers.find(u => u.name.toLowerCase() === memberName.toLowerCase());
+          const userObj = allUsers.find(u => {
+            const uName = (u.name || '').trim().toLowerCase();
+            const mName = memberName.trim().toLowerCase();
+            if (uName === mName) return true;
+            if (uName.includes(mName) || mName.includes(uName)) return true;
+            const uParts = uName.split(/\s+/);
+            const mParts = mName.split(/\s+/);
+            if (uParts.length > 1 && mParts.length > 1 && uParts[0] === mParts[0] && uParts[uParts.length - 1] === mParts[mParts.length - 1]) {
+              return true;
+            }
+            return false;
+          });
           records.push({
             userId: userObj?.id || `user-${r}`,
-            userName: memberName,
+            userName: userObj?.name || memberName,
             itsNumber: userObj?.itsNumber || '',
             section: userObj?.section || 'Trumpet',
             status: statusVal,

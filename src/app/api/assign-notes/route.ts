@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { isOverallMajor, isInstrumentMajor } from '@/lib/rbac';
 import {
   getAssignedNotesFromExcel,
+  getAssignedNotesFromSheet,
   saveAssignedNoteToExcel,
   batchAssignTuneInExcel,
   getAssignedTuneNamesForMember,
@@ -16,7 +17,7 @@ export const revalidate = 0;
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    const assignedNotes = getAssignedNotesFromExcel();
+    const assignedNotes = await getAssignedNotesFromSheet();
 
     let userAssignedTunes: string[] = [];
     if (user) {

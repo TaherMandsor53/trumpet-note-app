@@ -11,6 +11,9 @@ import { canAccessLavajam } from '@/lib/rbac';
 import { syncLavajamToExcel, postLavajamToGoogleSheet, syncLavajamFromGoogleSheet } from '@/lib/google-sheets';
 import { LavajamRecord } from '@/types/band';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);

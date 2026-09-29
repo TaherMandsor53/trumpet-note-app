@@ -9,8 +9,14 @@ import {
   getManagedSection,
   generateCredentialsFromFullName,
 } from '@/lib/rbac';
-import { addMemberToGoogleSheet } from '@/lib/google-sheets';
+import { addMemberToGoogleSheet, syncMemberDetailsFromSheet } from '@/lib/google-sheets';
 import { User } from '@/types/band';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+let lastSyncTimestamp = 0;
+const SYNC_INTERVAL_MS = 15000;
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,6 +25,18 @@ export async function GET(req: NextRequest) {
     const section = searchParams.get('section');
     const role = searchParams.get('role');
     const all = searchParams.get('all');
+    const refresh = searchParams.get('refresh') === 'true';
+
+    // Synchronize live members from Google Apps Script Web App (reflects on server & Vercel)
+    const shouldSync = refresh || Date.now() - lastSyncTimestamp > SYNC_INTERVAL_MS;
+    if (shouldSync) {
+      lastSyncTimestamp = Date.now();
+      try {
+        await syncMemberDetailsFromSheet();
+      } catch (e) {
+        console.warn('syncMemberDetailsFromSheet warning:', e);
+      }
+    }
 
     let allUsers = getUsers();
 

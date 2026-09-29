@@ -35,11 +35,12 @@ const sectionMapping: Record<string, InstrumentSection> = {
 
 export async function GET(req: NextRequest) {
   try {
-    const records = getReferenceLinksFromExcel();
+    const records = await getReferenceLinksFromSheet();
     return NextResponse.json({ referenceLinks: records });
   } catch (error: any) {
     console.error('Failed to retrieve reference links:', error);
-    return NextResponse.json({ error: error.message, referenceLinks: [] }, { status: 500 });
+    const fallback = getReferenceLinksFromExcel();
+    return NextResponse.json({ referenceLinks: fallback });
   }
 }
 

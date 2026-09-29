@@ -31,7 +31,9 @@ export function getGoogleSheetConfig(): GoogleSheetConfig {
     sheetId: process.env.GOOGLE_SHEET_ID || '1OwHHmLqRnzYa930ii3lxCvK0030Uy5atIP161C-QVLs',
     sheetName: process.env.GOOGLE_SHEET_NAME || 'Member Details',
     accountEmail: process.env.GOOGLE_ACCOUNT_EMAIL || 'taheriscoutgroupdahod@gmail.com',
-    appsScriptUrl: process.env.GOOGLE_SHEET_APPS_SCRIPT_URL || '',
+    appsScriptUrl:
+      process.env.GOOGLE_SHEET_APPS_SCRIPT_URL ||
+      'https://script.google.com/macros/s/AKfycbw2ojTVI69euWc18V3ITFjrNNS7ZxFG7UcaEySNeXbjIZqoSIvy5An6QDqUyWF5bg1v/exec',
   };
 }
 
@@ -348,7 +350,19 @@ export async function syncMemberDetailsFromSheet(): Promise<{
     }
   }
 
-  // 3. Fallback to cached active database roster
+  // 3. Fallback to reading directly from local Excel file (TAHERI_SCOUT_BAND_GROUP_1448H.xlsx -> Member Details sheet)
+  const excelUsers = getMembersFromExcel();
+  if (excelUsers.length > 0) {
+    syncUsersWithSheet(excelUsers);
+    return {
+      success: true,
+      count: excelUsers.length,
+      source: 'database_cache',
+      message: `Synchronized ${excelUsers.length} members directly from Member Details sheet in Excel.`,
+    };
+  }
+
+  // 4. Fallback to cached active database roster
   const cachedUsers = getUsers();
   return {
     success: true,
@@ -356,6 +370,76 @@ export async function syncMemberDetailsFromSheet(): Promise<{
     source: 'database_cache',
     message: `Connected to Member Details directory (${cachedUsers.length} members active).`,
   };
+}
+
+/**
+ * Reads all members directly from the local Excel file (TAHERI_SCOUT_BAND_GROUP_1448H.xlsx)
+ * Primary sheet: 'Member Details', fallback: 'Responses'
+ */
+export function getMembersFromExcel(): User[] {
+  if (typeof window === 'undefined') {
+    try {
+      const excelPath = path.resolve(process.cwd(), 'src', 'data', 'TAHERI_SCOUT_BAND_GROUP_1448H.xlsx');
+      if (!fs.existsSync(excelPath)) return [];
+
+      const fileBuf = fs.readFileSync(excelPath);
+      const wb = XLSX.read(fileBuf, { type: 'buffer' });
+      const ws = wb.Sheets['Member Details'] || wb.Sheets['Responses'];
+      if (!ws) return [];
+
+      const rawRows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      if (rawRows.length < 2) return [];
+
+      const users: User[] = [];
+      for (let i = 1; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        if (!row || (!row[1] && !row[2])) continue;
+
+        const itsNumber = String(row[1] || '').trim();
+        const name = String(row[2] || '').trim();
+        if (!name || name.toLowerCase() === 'full name') continue;
+
+        const address = String(row[3] || '').trim();
+        const phone = String(row[4] || '').trim();
+        const jamaat = String(row[5] || '').trim();
+        const rawRole = String(row[6] || '').trim();
+        const { role, section } = normalizeSheetRoleAndSection(rawRole, name);
+        const username = String(row[7] || '').trim() || (itsNumber ? `member${itsNumber}@tsgband.com` : `member${i}@tsgband.com`);
+        const email = username.includes('@') ? username : `${username}@tsgband.com`;
+        const password = String(row[8] || '').trim() || '786110515253';
+
+        const isTreasurerUser =
+          name.toUpperCase().includes('HUSAIN JUJARBHAI KUNDAWALA') ||
+          name.toUpperCase().includes('TAHA MAZHARBHAI KUNDAWALA') ||
+          rawRole.toLowerCase().includes('treasurer');
+        const userRank = isTreasurerUser
+          ? (section === 'Trumpet' ? 'Band Treasurer & Trumpet Musician' : 'Band Treasurer & SideDrum/BaseDrum Musician')
+          : (rawRole || role);
+
+        users.push({
+          id: itsNumber ? `sheet-${itsNumber}` : `sheet-user-${i}`,
+          itsNumber,
+          name,
+          username,
+          email,
+          password,
+          role,
+          section,
+          phone,
+          address,
+          jamaat,
+          rank: userRank,
+          joinedDate: '2026-09-29',
+          active: true,
+        });
+      }
+      return users;
+    } catch (err) {
+      console.warn('Failed to read members from Excel file:', err);
+      return [];
+    }
+  }
+  return [];
 }
 
 /**
@@ -2448,3 +2532,30 @@ export async function syncAssignNotesToGoogleSheet(
   }
 }
 
+/**
+ * Retrieves assigned notes from Google Sheet via Apps Script with fallback to Excel
+ */
+export async function getAssignedNotesFromSheet(): Promise<AssignNoteRecord[]> {
+  const config = getGoogleSheetConfig();
+  if (config.appsScriptUrl) {
+    try {
+      const res = await fetch(`${config.appsScriptUrl}?action=getAssignNotes`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      const data = await res.json().catch(() => null);
+      if (data && data.success && Array.isArray(data.assignedNotes) && data.assignedNotes.length > 0) {
+        return data.assignedNotes.map((n: any) => ({
+          memberName: String(n.memberName || '').trim(),
+          assignedTunes: String(n.assignedTunes || '').trim(),
+          section: String(n.section || '').trim(),
+          itsNumber: String(n.itsNumber || '').trim(),
+          lastUpdated: String(n.lastUpdated || ''),
+        }));
+      }
+    } catch (err) {
+      console.warn('Failed to fetch assigned notes from Apps Script:', err);
+    }
+  }
+  return getAssignedNotesFromExcel();
+}
